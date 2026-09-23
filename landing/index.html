@@ -358,6 +358,8 @@ h2 {
 }
 
 .lede { color: var(--muted); max-width: 58ch; font-size: 19px; }
+.lede.yours { margin-top: 16px; }
+.lede b { color: var(--text); font-weight: 600; }
 
 .local-grid {
   display: grid;
@@ -672,6 +674,9 @@ footer {
   font-size: 15px;
 }
 
+footer .made a { color: var(--lime); text-decoration: none; border-bottom: 1.5px dashed var(--lime); }
+footer .made a:hover { color: var(--pink); border-color: var(--pink); }
+
 footer .made {
   display: inline-block;
   font-family: var(--mono);
@@ -684,7 +689,7 @@ footer .made {
 
 .persona-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-top: 36px;
 }
@@ -716,6 +721,31 @@ footer .made {
 
 .p-art svg { width: 100%; height: 100%; display: block; }
 .p-art svg * { transform-box: fill-box; transform-origin: center; }
+
+.persona.p-twin { grid-column: span 2; }
+.p-twin .p-art { height: 170px; }
+.p-namerow { display: flex; align-items: center; gap: 10px; }
+.p-default {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--p-accent);
+  color: var(--p-panel);
+  padding: 2px 8px;
+  border-radius: 999px;
+  transform: rotate(-3deg);
+}
+
+.tw-hop { transform-origin: 50% 100%; animation: bunhop 2.4s ease-in-out infinite; }
+.tw-shadow { animation: bunshadow 2.4s ease-in-out infinite; }
+.tw-flow { fill: none; stroke: var(--p-accent); stroke-opacity: 0.45; stroke-width: 2; stroke-dasharray: 4 6; stroke-linecap: round; animation: flow 1.2s linear infinite; }
+.tw-chip { animation: chipbob 3s ease-in-out infinite; }
+.tw-chip.c2 { animation-delay: 0.6s; }
+.tw-chip.c3 { animation-delay: 1.2s; }
+.tw-heart { font-family: var(--sans); font-weight: 800; animation: floatup 2.6s ease-out infinite both; }
+.tw-heart.h2 { animation-delay: 1.3s; }
+.p-twin:hover .tw-hop, .p-twin:hover .tw-shadow { animation-duration: 1.1s; }
+.p-twin:hover .tw-flow { animation-duration: 0.5s; }
 
 .look-sm { animation: looksm 5s ease-in-out infinite; }
 .sh-ghost { animation: phase 4.5s ease-in-out infinite; }
@@ -834,7 +864,7 @@ footer .made {
   color: var(--muted);
 }
 
-.persona-note code {
+.persona-note code, .lede code, .fineprint code {
   font-family: var(--mono);
   font-size: 14px;
   background: var(--card);
@@ -844,6 +874,15 @@ footer .made {
   color: var(--lime);
 }
 
+@keyframes bunhop {
+  0%, 45%, 100% { transform: translateY(0) scale(1, 1); }
+  15% { transform: translateY(-9px) scale(0.96, 1.04); }
+  27% { transform: translateY(0) scale(1.08, 0.92); }
+  35% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes bunshadow { 0%, 45%, 100% { transform: scaleX(1); } 15% { transform: scaleX(0.75); } 27% { transform: scaleX(1.1); } }
+@keyframes flow { to { stroke-dashoffset: -20; } }
+@keyframes chipbob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(2deg); } }
 @keyframes looksm {
   0%, 20% { transform: translate(0, 0); }
   25%, 45% { transform: translate(1.6px, -0.8px); }
@@ -888,6 +927,7 @@ footer .made {
   .features { grid-template-columns: 1fr; }
   .features > .feature { grid-column: auto; grid-row: auto; }
   .persona-grid { grid-template-columns: repeat(2, 1fr); }
+  .p-twin .p-art { height: 150px; }
   .f-memory .art { min-height: 200px; }
   .nav-links a:not(.gh-btn) { display: none; }
   section { padding: 56px 0; }
@@ -896,6 +936,7 @@ footer .made {
 
 @media (max-width: 520px) {
   .persona-grid { grid-template-columns: 1fr; }
+  .persona.p-twin { grid-column: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -951,16 +992,17 @@ footer .made {
 <section id="local">
   <div class="wrap local-grid">
     <div>
-      <p class="eyebrow">// why local</p>
+      <p class="eyebrow">why local</p>
       <h2>your stuff stays on your laptop.</h2>
-      <p class="lede">Twin keeps everything it knows about you in a DuckDB file sitting right next to the code. No accounts, no sync, no cloud database, no analytics. Twin has no server of its own, so there's nowhere for your data to go.</p>
-      <p class="fineprint">The one thing that leaves your Mac: when you chat, your message goes directly to the Anthropic API for a reply, along with a fuzzy one-line-per-item summary like "spent money on food earlier this week". No amounts, no names, no account numbers. That's it.</p>
+      <p class="lede">Twin keeps everything it knows about you in a DuckDB file at <code>~/.twin/twin.duckdb</code>, right on your Mac. No accounts, no sync, no cloud database, no analytics. Twin has no server of its own, so there's nowhere for your data to go.</p>
+      <p class="lede yours">Twin is a real app anyone can install, not somebody's personal script. Everyone who installs it gets <b>their own brand-new twin.duckdb</b>, created on their Mac the first time they run Twin. Nothing is shared, synced, or pooled between users, so your data never mixes with anyone else's, and the database itself never leaves your machine.</p>
+      <p class="fineprint">What leaves your Mac: when you chat, one request goes straight to the Anthropic API with your message, your name, the current time, today's calendar event titles and times, and a fuzzy spending summary like "spent money on food earlier this week". Amounts, balances, account numbers, merchants and raw SMS never leave, and Twin scrubs every request before it's sent. Run it with <code>BUDDY_DEBUG=1</code> to see exactly what goes out.</p>
     </div>
 
     <div class="flow">
       <div class="flow-row">
         <div class="flow-icon" style="background:#c6ff4a22">🦆</div>
-        <div class="label">twin.duckdb<small>your activity, on disk, on-device</small></div>
+        <div class="label">twin.duckdb<small>your transactions, on disk, on-device</small></div>
         <span class="tag stay">stays home</span>
       </div>
       <div class="flow-row">
@@ -970,7 +1012,7 @@ footer .made {
       </div>
       <div class="flow-row">
         <div class="flow-icon" style="background:#7ad7ff22">💬</div>
-        <div class="label">api.anthropic.com<small>your chat message + that summary, for the reply</small></div>
+        <div class="label">api.anthropic.com<small>your message, name, today's events + that summary</small></div>
         <span class="tag go">only exit</span>
       </div>
       <div class="flow-row">
@@ -984,7 +1026,7 @@ footer .made {
 
 <section id="features">
   <div class="wrap">
-    <p class="eyebrow">// stuff it does</p>
+    <p class="eyebrow">stuff it does</p>
     <h2>small buddy. surprisingly handy.</h2>
     <p class="lede">No dashboard, no onboarding flow, no 14-step tour. It's a little bubble on your screen that talks back.</p>
 
@@ -1048,7 +1090,7 @@ footer .made {
           </svg>
         </div>
         <h3>remembers what you've been up to</h3>
-        <p>Your recent activity gets indexed into a local DuckDB file, so Twin has a rough picture of your week without you having to explain it.</p>
+        <p>Twin parses bank SMS from Messages into a local DuckDB file and peeks at today's calendar, so it has a rough picture of your day without you having to explain it.</p>
       </div>
 
       <div class="feature f-weird" data-gaze="5" style="--accent: var(--pink)">
@@ -1081,7 +1123,7 @@ footer .made {
           </svg>
         </div>
         <h3>a little bit weird</h3>
-        <p>Warm, short, a tiny bit nosy. Twin talks like a friend in a speech bubble, not a chatbot writing you a five-paragraph essay with headers.</p>
+        <p>Twin itself is warm and easygoing. Want more flavor? Swap in a sly shadow-ghost, a hype-machine spark, or a sleepy moon ghost with one command. None of them write you five-paragraph essays with headers.</p>
       </div>
 
       <div class="feature f-source" style="--accent: var(--sun)">
@@ -1111,11 +1153,59 @@ footer .made {
 
 <section id="personas">
   <div class="wrap">
-    <p class="eyebrow">// pick a vibe</p>
-    <h2>four moods. same buddy.</h2>
-    <p class="lede">Twin comes in four flavors. Same local brain, different attitude. Colors below are the exact palettes the app uses.</p>
+    <p class="eyebrow">pick a vibe</p>
+    <h2>five moods. same buddy.</h2>
+    <p class="lede">Twin comes in five flavors. Same local brain, different attitude. Colors below are the exact palettes the app uses.</p>
 
     <div class="persona-grid">
+      <div class="persona p-twin" data-gaze="1.6" style="--p-panel: #0E0D12; --p-edge: #3c4a20; --p-accent: #C6FF4A; --p-ink: #F7F2E8; --p-muted: #9e9b97; --p-bubble: #242a19; --p-bubble-edge: #36421e; --p-field: #0a090d">
+        <div class="p-art">
+            <svg viewBox="0 0 400 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <path class="tw-flow" d="M252 42 Q218 48 190 70"/>
+              <path class="tw-flow" d="M314 78 Q250 80 192 82"/>
+              <path class="tw-flow" d="M262 112 Q222 106 190 94"/>
+              <g transform="translate(270 42)"><g class="tw-chip c1">
+                <rect x="-17" y="-15" width="34" height="30" rx="6" fill="#242a19" stroke="#36421e" stroke-width="1.5"/>
+                <rect x="-17" y="-15" width="34" height="8" rx="4" fill="#C6FF4A"/>
+                <rect x="-10" y="-1" width="20" height="3" rx="1.5" fill="#9e9b97"/>
+                <rect x="-10" y="6" width="12" height="3" rx="1.5" fill="#9e9b97"/>
+              </g></g>
+              <g transform="translate(332 78)"><g class="tw-chip c2">
+                <circle r="15" fill="#242a19" stroke="#C6FF4A" stroke-width="2.5"/>
+                <text x="0" y="1" fill="#C6FF4A" font-family="-apple-system, system-ui, sans-serif" font-size="15" font-weight="700" text-anchor="middle" dominant-baseline="central">₹</text>
+              </g></g>
+              <g transform="translate(282 112)"><g class="tw-chip c3">
+                <rect x="-19" y="-12" width="38" height="24" rx="8" fill="#242a19" stroke="#36421e" stroke-width="1.5"/>
+                <path d="M-12 12 L-14 19 L-5 12 Z" fill="#242a19"/>
+                <rect x="-11" y="-5" width="22" height="3" rx="1.5" fill="#9e9b97"/>
+                <rect x="-11" y="2" width="14" height="3" rx="1.5" fill="#9e9b97"/>
+              </g></g>
+              <text class="tw-heart" x="78" y="44" fill="#eea297" font-size="18">♥</text>
+              <text class="tw-heart h2" x="186" y="34" fill="#C6FF4A" font-size="15">✦</text>
+              <ellipse class="tw-shadow" cx="138" cy="130" rx="38" ry="5" fill="#000" opacity="0.45"/>
+              <g transform="translate(140 84) scale(2.4)">
+                <g class="tw-hop">
+                  <ellipse cx="0" cy="0.5" rx="18" ry="16.5" fill="#9ecc3b"/>
+                  <ellipse cx="-1.5" cy="-1.25" rx="16.5" ry="14.75" fill="#C6FF4A"/>
+                  <g class="eyes"><g class="gaze"><g class="look look-sm">
+                    <ellipse cx="-6.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+                    <ellipse cx="2.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+                  </g></g></g>
+                  <ellipse cx="-11.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+                  <ellipse cx="7.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+                  <path d="M-4.6 1.4 Q-2 4.6 0.6 1.4" fill="none" stroke="#111111" stroke-width="1.1" stroke-linecap="round"/>
+                </g>
+              </g>
+            </svg>
+        </div>
+        <div><div class="p-namerow"><span class="p-name">Twin</span><span class="p-default">default</span></div><div class="p-status">hanging out</div></div>
+        <div class="p-bubble">hey friend! what's up?</div>
+        <p class="p-desc">The one you get out of the box. Warm, cheerful, easygoing, like a good friend who's happy to help. Light and kind, no big act.</p>
+        <div class="p-foot">
+          <div class="swatches"><span class="swatch" style="background: #0E0D12" data-hex="background #0E0D12" title="background #0E0D12"></span><span class="swatch" style="background: #C6FF4A" data-hex="accent #C6FF4A" title="accent #C6FF4A"></span><span class="swatch" style="background: #F7F2E8" data-hex="text #F7F2E8" title="text #F7F2E8"></span></div>
+          <code class="p-cmd">/persona twin</code>
+        </div>
+      </div>
       <div class="persona p-shade" data-gaze="1.8" style="--p-panel: #17111F; --p-edge: #3b2c57; --p-accent: #A77BFF; --p-ink: #EEE8F7; --p-muted: #9c96a5; --p-bubble: #281e3a; --p-bubble-edge: #372850; --p-field: #100c16">
         <div class="p-art">
             <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -1141,7 +1231,7 @@ footer .made {
             </svg>
         </div>
         <div><div class="p-name">Shade</div><div class="p-status">lurking behind windows</div></div>
-        <div class="p-bubble">Heh… you rang? Ask me anything.</div>
+        <div class="p-bubble">Heh… you rang, friend? Ask me anything. Cmd+Shift+Space and I vanish.</div>
         <p class="p-desc">A mischievous shadow-ghost. Grins a lot, teases a little, still firmly on your side.</p>
         <div class="p-foot">
           <div class="swatches"><span class="swatch" style="background: #17111F" data-hex="background #17111F" title="background #17111F"></span><span class="swatch" style="background: #A77BFF" data-hex="accent #A77BFF" title="accent #A77BFF"></span><span class="swatch" style="background: #EEE8F7" data-hex="text #EEE8F7" title="text #EEE8F7"></span><span class="swatch" style="background: #FF4F6E" data-hex="eyes #FF4F6E" title="eyes #FF4F6E"></span></div>
@@ -1165,7 +1255,7 @@ footer .made {
             </svg>
         </div>
         <div><div class="p-name">Ember</div><div class="p-status">all fired up</div></div>
-        <div class="p-bubble">Hey hey! Ember's all fired up. What are we doing today?</div>
+        <div class="p-bubble">Hey hey, friend! Ember's all fired up. What are we doing today?</div>
         <p class="p-desc">A bright little spark who hypes you up and makes errands sound like an adventure.</p>
         <div class="p-foot">
           <div class="swatches"><span class="swatch" style="background: #1E120D" data-hex="background #1E120D" title="background #1E120D"></span><span class="swatch" style="background: #FF7A3D" data-hex="accent #FF7A3D" title="accent #FF7A3D"></span><span class="swatch" style="background: #FFEDE4" data-hex="text #FFEDE4" title="text #FFEDE4"></span><span class="swatch" style="background: #FFD166" data-hex="eyes #FFD166" title="eyes #FFD166"></span></div>
@@ -1199,7 +1289,7 @@ footer .made {
             </svg>
         </div>
         <div><div class="p-name">Luna</div><div class="p-status">here whenever you need me</div></div>
-        <div class="p-bubble">Hi there. Take a breath. What's on your mind?</div>
+        <div class="p-bubble">Hi friend. Take a breath. What's on your mind?</div>
         <p class="p-desc">Soft, patient, unhurried. Talks about money without judgment and helps you breathe out.</p>
         <div class="p-foot">
           <div class="swatches"><span class="swatch" style="background: #141828" data-hex="background #141828" title="background #141828"></span><span class="swatch" style="background: #A5B4FF" data-hex="accent #A5B4FF" title="accent #A5B4FF"></span><span class="swatch" style="background: #E7EBFA" data-hex="text #E7EBFA" title="text #E7EBFA"></span></div>
@@ -1221,8 +1311,8 @@ footer .made {
             </svg>
         </div>
         <div><div class="p-name">Assistant</div><div class="p-status">ready</div></div>
-        <div class="p-bubble">Hi. How can I help?</div>
-        <p class="p-desc">No quirks, no puns, no ghost. Clear, neutral answers. The default if you pick nothing.</p>
+        <div class="p-bubble">Hi friend. How can I help?</div>
+        <p class="p-desc">No quirks, no puns, no ghost. Clear, neutral answers, all business.</p>
         <div class="p-foot">
           <div class="swatches"><span class="swatch" style="background: #1E1E20" data-hex="background #1E1E20" title="background #1E1E20"></span><span class="swatch" style="background: #8E8E93" data-hex="accent #8E8E93" title="accent #8E8E93"></span><span class="swatch" style="background: #F2F2F7" data-hex="text #F2F2F7" title="text #F2F2F7"></span></div>
           <code class="p-cmd">/persona plain</code>
@@ -1230,14 +1320,14 @@ footer .made {
       </div>
     </div>
 
-    <p class="persona-note">Pick one at launch with <code>PERSONA=gengar python3 buddy.py</code>, or switch live by typing <code>/persona &lt;name&gt;</code> in chat. Use the lowercase name on each card. Pick nothing and you get Assistant.</p>
+    <p class="persona-note">Pick one at launch with <code>PERSONA=gengar python3 buddy.py</code>, or switch live by typing <code>/persona &lt;name&gt;</code> in chat. Use the lowercase name on each card. Pick nothing and you get Twin. Want no personality at all? <code>/persona plain</code> switches to Assistant, the no-frills fallback.</p>
   </div>
 </section>
 
 <section id="install">
   <div class="wrap">
-    <p class="eyebrow">// install</p>
-    <h2>four commands. that's the installer.</h2>
+    <p class="eyebrow">install</p>
+    <h2>five steps. that's the installer.</h2>
     <p class="lede">No .dmg yet. We're a hackathon project, so you get the terminal version.</p>
 
     <div class="readme">
@@ -1249,7 +1339,7 @@ footer .made {
           <span class="shield"><span>storage</span><span style="background:var(--sun);color:#111">duckdb</span></span>
           <span class="shield"><span>status</span><span style="background:var(--pink);color:#111">very early</span></span>
         </div>
-        <p>A local-first desktop buddy. Needs Python 3 and an <code class="inline">ANTHROPIC_API_KEY</code>.</p>
+        <p>A local-first desktop buddy. Needs macOS, Python 3 with Tk, and an <code class="inline">ANTHROPIC_API_KEY</code>.</p>
 
         <h4>1. grab the code</h4>
         <div class="code">
@@ -1260,24 +1350,33 @@ footer .made {
 
         <h4>2. install dependencies</h4>
         <div class="code">
-          <pre><span class="p">$ </span>pip install -r requirements.txt</pre>
-          <button class="copy" data-cmd="pip install -r requirements.txt">copy</button>
+          <pre><span class="p">$ </span>pip install anthropic duckdb python-dotenv pynput \
+    pyobjc-framework-Cocoa pyobjc-framework-Quartz</pre>
+          <button class="copy" data-cmd="pip install anthropic duckdb python-dotenv pynput \&#10;    pyobjc-framework-Cocoa pyobjc-framework-Quartz">copy</button>
         </div>
 
         <h4>3. add your api key</h4>
         <div class="code">
-          <pre><span class="p">$ </span>cp .env.example .env
-<span class="c"># then open .env and set ANTHROPIC_API_KEY=sk-ant-...</span></pre>
-          <button class="copy" data-cmd="cp .env.example .env">copy</button>
+          <pre><span class="p">$ </span>echo 'ANTHROPIC_API_KEY=sk-ant-...' &gt; .env
+<span class="c"># swap in your real key from console.anthropic.com</span></pre>
+          <button class="copy" data-cmd="echo 'ANTHROPIC_API_KEY=sk-ant-...' &gt; .env">copy</button>
         </div>
 
-        <h4>4. say hi</h4>
+        <h4>4. teach it your week</h4>
         <div class="code">
-          <pre><span class="p">$ </span>python3 buddy.py</pre>
+          <pre><span class="p">$ </span>python3 run_pipeline.py
+<span class="c"># reads recent bank SMS from Messages into ~/.twin/twin.duckdb</span></pre>
+          <button class="copy" data-cmd="python3 run_pipeline.py">copy</button>
+        </div>
+
+        <h4>5. say hi</h4>
+        <div class="code">
+          <pre><span class="p">$ </span>python3 buddy.py
+<span class="c"># or pick a persona: PERSONA=gengar python3 buddy.py</span></pre>
           <button class="copy" data-cmd="python3 buddy.py">copy</button>
         </div>
 
-        <div class="note"><b>heads up:</b> macOS will ask for Accessibility permission the first time so the global hotkey can work. Say yes, or Twin can't hear you.</div>
+        <div class="note"><b>heads up:</b> give your terminal Full Disk Access in System Settings so step 4 can read Messages. macOS will also ask for Accessibility and Input Monitoring (for the hotkey) and Calendar the first time Twin needs them. Say yes, or Twin can't hear you.</div>
       </div>
     </div>
   </div>
@@ -1285,7 +1384,7 @@ footer .made {
 
 <footer>
   <div class="wrap">
-    <span class="made">made with too much coffee and not enough sleep</span>
+    <span class="made">made with &lt;3 by <a href="https://siddharththakkar.xyz" target="_blank" rel="noopener">woustachemax</a></span>
   </div>
 </footer>
 

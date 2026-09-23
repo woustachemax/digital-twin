@@ -8,19 +8,11 @@ import streamlit as st
 
 POLL_SECONDS = 3
 
-CANDIDATE_PATHS = [
-    os.environ.get("TWIN_DB_PATH"),
-    "twin.duckdb",
-    "../twin-db/twin.duckdb",
-    os.path.expanduser("~/code/twin-db/twin.duckdb"),
-]
+DEFAULT_DB_PATH = os.path.expanduser("~/.twin/twin.duckdb")
 
 
 def resolve_db_path():
-    for path in CANDIDATE_PATHS:
-        if path and os.path.exists(path):
-            return path
-    return CANDIDATE_PATHS[1]
+    return os.environ.get("TWIN_DB_PATH") or DEFAULT_DB_PATH
 
 
 def load_data(db_path):

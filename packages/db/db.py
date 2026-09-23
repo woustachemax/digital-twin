@@ -1,12 +1,15 @@
 import duckdb
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-DB_PATH = "twin.duckdb"
+DB_PATH = os.environ.get("TWIN_DB_PATH") or os.path.expanduser("~/.twin/twin.duckdb")
 
 
 def get_connection(db_path: str = DB_PATH) -> duckdb.DuckDBPyConnection:
+    parent = os.path.dirname(os.path.abspath(db_path))
+    os.makedirs(parent, mode=0o700, exist_ok=True)
     con = duckdb.connect(db_path)
     con.execute("""
         CREATE TABLE IF NOT EXISTS transactions (

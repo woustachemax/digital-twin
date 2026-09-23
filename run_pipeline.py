@@ -2,15 +2,15 @@ import os
 import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-for sibling in ("twin-ingest", "twin-parse", "twin-db"):
-    sys.path.insert(0, os.path.join(BASE_DIR, "..", sibling))
+for package in ("ingest", "parse", "db"):
+    sys.path.insert(0, os.path.join(BASE_DIR, "packages", package))
 
 from imessage_export import fetch_last_messages
 from sms_parser import parse_messages
 from db import get_connection, insert_transaction, transaction_exists
 
 
-def main():
+def ingest():
     messages = fetch_last_messages()
     con = get_connection()
     inserted = 0
@@ -34,6 +34,11 @@ def main():
                 inserted += 1
     finally:
         con.close()
+    return inserted, skipped
+
+
+def main():
+    inserted, skipped = ingest()
     print(f"Inserted {inserted} transactions ({skipped} duplicates skipped)")
 
 
