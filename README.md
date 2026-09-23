@@ -107,7 +107,7 @@ cd digital-twin
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install anthropic duckdb python-dotenv pynput pyobjc-framework-Cocoa pyobjc-framework-Quartz
+pip install anthropic duckdb python-dotenv pynput pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-Vision
 pip install streamlit pandas
 ```
 
