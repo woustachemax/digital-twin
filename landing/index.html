@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twin</title>
+<meta name="description" content="Twin is a local-first AI buddy that floats on your Mac desktop, remembers your activity on-device with DuckDB, and chats with you on a hotkey.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cellipse cx='32' cy='33' rx='29' ry='27' fill='%23c6ff4a'/%3E%3Crect x='20' y='20' width='7' height='13' rx='3.5' fill='%23111'/%3E%3Crect x='37' y='20' width='7' height='13' rx='3.5' fill='%23111'/%3E%3Cellipse cx='15' cy='38' rx='5' ry='3' fill='%23ff7ab8'/%3E%3Cellipse cx='49' cy='38' rx='5' ry='3' fill='%23ff7ab8'/%3E%3Cpath d='M27 39 Q32 45 37 39' fill='none' stroke='%23111' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0e0d12;
+  --bg-2: #16141d;
+  --card: #1c1a25;
+  --line: #2c2938;
+  --text: #f3eefc;
+  --muted: #a39db3;
+  --lime: #c6ff4a;
+  --pink: #ff7ab8;
+  --sky: #7ad7ff;
+  --sun: #ffd35c;
+  --radius: 22px;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { display: none; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 18px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  background-image: radial-gradient(circle at 1px 1px, #ffffff0d 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+a { color: inherit; }
+
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; }
+
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 0;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  font-size: 22px;
+  text-decoration: none;
+  letter-spacing: -0.02em;
+}
+
+.logo-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--lime);
+  position: relative;
+  box-shadow: 0 0 0 3px #c6ff4a33;
+}
+
+.logo-dot::before, .logo-dot::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  width: 4px;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+.logo-dot::before { left: 7px; }
+.logo-dot::after { right: 7px; }
+
+.nav-links { display: flex; gap: 22px; align-items: center; font-size: 15px; }
+.nav-links a { text-decoration: none; color: var(--muted); }
+.nav-links a:hover { color: var(--text); }
+
+.gh-btn {
+  border: 1.5px solid var(--line);
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: var(--text) !important;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.gh-btn { transition: transform 0.15s ease, border-color 0.15s ease; display: inline-block; }
+.gh-btn:hover { border-color: var(--lime); transform: translateY(-2px) scale(1.04); }
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 40px;
+  align-items: center;
+  padding: 60px 0 90px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  background: #ffd35c1a;
+  color: var(--sun);
+  border: 1px dashed #ffd35c66;
+  padding: 6px 12px;
+  border-radius: 999px;
+  transform: rotate(-1.5deg);
+  margin-bottom: 22px;
+}
+
+h1 {
+  font-size: clamp(48px, 8vw, 92px);
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  margin-bottom: 22px;
+}
+
+h1 .squiggle {
+  color: var(--lime);
+  position: relative;
+  white-space: nowrap;
+}
+
+h1 .squiggle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 12px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 12'%3E%3Cpath d='M0 6 Q5 0 10 6 T20 6 T30 6 T40 6' fill='none' stroke='%23ff7ab8' stroke-width='3'/%3E%3C/svg%3E") repeat-x;
+  background-size: 40px 12px;
+}
+
+.tagline {
+  font-size: 21px;
+  color: var(--muted);
+  max-width: 30ch;
+  margin-bottom: 32px;
+}
+
+.tagline b { color: var(--text); font-weight: 600; }
+
+.cta-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-radius: 14px;
+  font-weight: 700;
+  font-size: 17px;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--lime);
+  color: #111;
+  box-shadow: 4px 4px 0 var(--pink);
+}
+
+.btn-primary:hover { transform: translate(-2px, -3px) scale(1.03); box-shadow: 6px 7px 0 var(--pink); }
+.btn:active { transform: translateY(0) scale(0.98); }
+
+.btn-ghost { border: 1.5px solid var(--line); color: var(--text); }
+.btn-ghost:hover { border-color: var(--muted); transform: translateY(-3px) scale(1.03); }
+
+.hint {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 22px;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 2px 7px;
+  color: var(--text);
+}
+
+.stage {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  max-width: 420px;
+  width: 100%;
+  justify-self: center;
+  border-radius: 28px;
+  background: linear-gradient(160deg, #2a2140, #151320 70%);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.menubar {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: #00000040;
+  border-bottom: 1px solid #ffffff0d;
+}
+
+.bubble {
+  position: absolute;
+  top: 18%;
+  left: 8%;
+  right: 12%;
+  background: var(--text);
+  color: #17141f;
+  padding: 16px 18px;
+  border-radius: 20px 20px 20px 6px;
+  font-size: 16px;
+  line-height: 1.4;
+  box-shadow: 0 12px 30px #00000066;
+  animation: pop 0.6s cubic-bezier(.2, 1.6, .4, 1) both 0.4s;
+}
+
+.bubble .typing { color: #8a8398; font-family: var(--mono); font-size: 12px; display: block; margin-top: 8px; }
+
+.blob {
+  position: absolute;
+  bottom: 14%;
+  left: 12%;
+  width: 118px;
+  height: 108px;
+  background: var(--lime);
+  border-radius: 58% 42% 50% 50% / 55% 55% 45% 45%;
+  animation: bob 3.2s ease-in-out infinite;
+  box-shadow: inset -10px -12px 0 #9ed624, 0 20px 40px #c6ff4a33;
+}
+
+.blob .eye {
+  position: absolute;
+  top: 36px;
+  width: 12px;
+  height: 20px;
+  background: #111;
+  border-radius: 8px;
+  animation: blink 4.5s infinite;
+}
+
+.blob .eye.l { left: 34px; }
+.blob .eye.r { left: 64px; }
+
+.blob .cheek {
+  position: absolute;
+  top: 60px;
+  width: 16px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pink);
+  opacity: 0.7;
+}
+
+.blob .cheek.l { left: 20px; }
+.blob .cheek.r { left: 78px; }
+
+.blob .mouth {
+  position: absolute;
+  top: 62px;
+  left: 48px;
+  width: 18px;
+  height: 9px;
+  border: 3px solid #111;
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+}
+
+.sparkle {
+  position: absolute;
+  color: var(--sun);
+  font-size: 22px;
+  animation: twinkle 2.4s ease-in-out infinite;
+}
+
+.sparkle.s1 { right: 18%; bottom: 30%; }
+.sparkle.s2 { right: 30%; bottom: 14%; font-size: 14px; color: var(--sky); animation-delay: 0.8s; }
+.sparkle.s3 { left: 48%; bottom: 40%; font-size: 12px; color: var(--pink); animation-delay: 1.4s; }
+
+.sticker {
+  position: absolute;
+  bottom: 18px;
+  right: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--pink);
+  color: #111;
+  padding: 5px 10px;
+  border-radius: 8px;
+  transform: rotate(4deg);
+  font-weight: 600;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-8px) rotate(1.5deg); }
+}
+
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.6) translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15) rotate(20deg); }
+}
+
+section { padding: 80px 0; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--pink);
+  text-transform: lowercase;
+  margin-bottom: 12px;
+}
+
+h2 {
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+  margin-bottom: 20px;
+}
+
+.lede { color: var(--muted); max-width: 58ch; font-size: 19px; }
+
+.local-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.flow {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 26px;
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.flow-row:last-child { border-bottom: none; }
+
+.flow-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+
+.flow-row .label { flex: 1; }
+.flow-row .label small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.tag {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.tag.stay { background: #c6ff4a22; color: var(--lime); }
+.tag.go { background: #7ad7ff22; color: var(--sky); }
+.tag.never { background: #ff7ab822; color: var(--pink); }
+
+.fineprint {
+  margin-top: 20px;
+  font-size: 15px;
+  color: var(--muted);
+  border-left: 3px solid var(--sun);
+  padding-left: 14px;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 18px;
+  margin-top: 40px;
+}
+
+.feature {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 22px 26px;
+  transition: transform 0.25s cubic-bezier(.2, 1.4, .4, 1), border-color 0.2s ease, box-shadow 0.25s ease;
+}
+
+.feature:nth-child(odd) { transform: rotate(-0.4deg); }
+.feature:nth-child(even) { transform: rotate(0.4deg); }
+.feature:hover {
+  transform: rotate(0) translateY(-6px);
+  border-color: var(--accent);
+  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.f-hotkey { grid-column: span 4; }
+.f-memory { grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; }
+.f-weird, .f-source { grid-column: span 2; }
+
+.art {
+  height: 160px;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  background: color-mix(in srgb, var(--accent) 7%, #0f0e14);
+  border: 1px dashed color-mix(in srgb, var(--accent) 28%, transparent);
+  overflow: hidden;
+}
+
+.f-memory .art { flex: 1; min-height: 240px; }
+
+.art svg { width: 100%; height: 100%; display: block; }
+.art svg * { transform-box: fill-box; transform-origin: center; }
+
+.feature h3 { font-size: 24px; letter-spacing: -0.02em; margin-bottom: 8px; }
+.feature p { color: var(--muted); font-size: 16px; }
+
+.key-base { fill: #0b0a0f; }
+.key-cap { fill: #24212e; stroke: var(--line); stroke-width: 1.5; animation: keylit 3s infinite; }
+.key-top { animation: press 3s infinite; }
+.key-label { font-family: var(--mono); font-size: 18px; fill: var(--text); text-anchor: middle; dominant-baseline: central; }
+.k2 .key-top, .k2 .key-cap { animation-delay: 0.25s; }
+.k3 .key-top, .k3 .key-cap { animation-delay: 0.5s; }
+.bub { transform-origin: 50% 100%; animation: bubpop 3s infinite; }
+.bub-fill { fill: var(--text); }
+.dot { fill: #17141f; animation: dotjump 0.9s ease-in-out infinite; }
+.d2 { animation-delay: 0.15s; }
+.d3 { animation-delay: 0.3s; }
+.hop { animation: hop 3s infinite; }
+.f-hotkey:hover .key-top, .f-hotkey:hover .key-cap, .f-hotkey:hover .bub, .f-hotkey:hover .hop { animation-duration: 1.6s; }
+
+.drop { animation: drop 2.8s cubic-bezier(.5, 0, .7, 1) infinite both; }
+.dr2 { animation-delay: 0.7s; }
+.dr3 { animation-delay: 1.4s; }
+.dr4 { animation-delay: 2.1s; }
+.db-body { fill: color-mix(in srgb, var(--sky) 14%, transparent); stroke: var(--sky); stroke-width: 2; }
+.db-ring { fill: none; stroke: var(--sky); stroke-opacity: 0.45; stroke-width: 2; }
+.lid { fill: var(--sky); stroke: var(--sky); stroke-width: 2; animation: lid 1.4s ease-in-out infinite; }
+.duck { transform-origin: 50% 100%; animation: duck 1.6s ease-in-out infinite alternate; }
+.f-memory:hover .duck { animation-duration: 0.35s; }
+.f-memory:hover .drop { animation-duration: 1.4s; }
+.caption { font-family: var(--mono); font-size: 11px; fill: var(--muted); text-anchor: middle; }
+
+.wob { animation: wob 2.6s ease-in-out infinite; }
+.f-weird:hover .squish { animation: squish 0.7s cubic-bezier(.2, 1.6, .4, 1); }
+.eyes { animation: blink 4s infinite; }
+.look { animation: look 5s ease-in-out infinite; }
+.tracking .look { animation: none; }
+.mouth-o { opacity: 0; transition: opacity 0.15s ease; }
+.mouth-s { transition: opacity 0.15s ease; }
+.f-weird:hover .mouth-o { opacity: 1; }
+.f-weird:hover .mouth-s { opacity: 0; }
+.fl { font-family: var(--sans); font-weight: 800; animation: floatup 2.4s ease-out infinite both; }
+.fl2 { animation-delay: 0.8s; }
+.fl3 { animation-delay: 1.6s; }
+
+.trunk { fill: none; stroke: #3a3647; stroke-width: 3; stroke-linecap: round; }
+.branch { fill: none; stroke: var(--lime); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1; animation: draw 3.6s ease-in-out infinite; }
+.commit { fill: var(--card); stroke: var(--sun); stroke-width: 3; }
+.commit.new { stroke: var(--lime); }
+.cA { animation: cA 3.6s infinite; }
+.cB { animation: cB 3.6s infinite; }
+.cC { animation: cC 3.6s infinite; }
+.fork-label { font-family: var(--mono); font-size: 10px; fill: var(--lime); text-anchor: middle; }
+.star { fill: var(--sun); animation: spin 6s linear infinite; }
+.f-source:hover .star { animation-duration: 1s; }
+.brk { font-family: var(--mono); font-size: 22px; font-weight: 600; fill: var(--muted); animation: brk 2s ease-in-out infinite; }
+
+@keyframes press { 0% { transform: translateY(0); } 3% { transform: translateY(7px); } 9%, 100% { transform: translateY(0); } }
+@keyframes keylit { 0% { fill: #24212e; } 3% { fill: #4b5f1a; } 14%, 100% { fill: #24212e; } }
+@keyframes bubpop {
+  0%, 20% { transform: scale(0); opacity: 0; }
+  27% { transform: scale(1.12); opacity: 1; }
+  31%, 82% { transform: scale(1); opacity: 1; }
+  90%, 100% { transform: scale(0); opacity: 0; }
+}
+@keyframes dotjump { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes hop { 0%, 20% { transform: translateY(0); } 25% { transform: translateY(-12px); } 31%, 100% { transform: translateY(0); } }
+@keyframes drop {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  70% { transform: translateY(96px) scale(0.7); opacity: 1; }
+  80%, 100% { transform: translateY(104px) scale(0.2); opacity: 0; }
+}
+@keyframes lid { 0%, 100% { fill-opacity: 0.2; } 50% { fill-opacity: 0.5; } }
+@keyframes duck { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
+@keyframes wob { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+@keyframes squish { 0% { transform: scale(1, 1); } 30% { transform: scale(1.15, 0.85); } 60% { transform: scale(0.92, 1.08); } 100% { transform: scale(1, 1); } }
+@keyframes look {
+  0%, 20% { transform: translate(0, 0); }
+  25%, 45% { transform: translate(4px, -2px); }
+  50%, 70% { transform: translate(-4px, 1px); }
+  75%, 95% { transform: translate(0, 3px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes floatup {
+  0% { transform: translateY(8px) scale(0.6); opacity: 0; }
+  20% { transform: translateY(0) scale(1); opacity: 1; }
+  75% { opacity: 1; }
+  100% { transform: translateY(-20px) scale(1); opacity: 0; }
+}
+@keyframes draw {
+  0%, 5% { stroke-dashoffset: 1; opacity: 1; }
+  50%, 86% { stroke-dashoffset: 0; opacity: 1; }
+  94%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes cA { 0%, 21% { transform: scale(0); } 26% { transform: scale(1.4); } 30%, 86% { transform: scale(1); } 94%, 100% { transform: scale(0); } }
+@keyframes cB { 0%, 31% { transform: scale(0); } 36% { transform: scale(1.4); } 40%, 86% { transform: scale(1); } 94%, 100% { transform: scale(0); } }
+@keyframes cC { 0%, 49% { transform: scale(0); } 54% { transform: scale(1.5); } 58%, 86% { transform: scale(1); } 94%, 100% { transform: scale(0); } }
+@keyframes spin { from { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.25); } to { transform: rotate(360deg) scale(1); } }
+@keyframes brk { 0%, 100% { letter-spacing: 0; } 50% { letter-spacing: 4px; } }
+
+.readme {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-top: 36px;
+}
+
+.readme-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  background: #ffffff05;
+}
+
+.readme-body { padding: 30px; }
+
+.readme-body h3 {
+  font-size: 26px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+
+.readme-body h4 {
+  font-size: 18px;
+  margin: 28px 0 10px;
+}
+
+.readme-body p { color: var(--muted); font-size: 16px; }
+
+.readme-body code.inline {
+  font-family: var(--mono);
+  font-size: 14px;
+  background: var(--card);
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.shields { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+
+.shield {
+  display: inline-flex;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.shield span { padding: 3px 7px; }
+.shield span:first-child { background: #3a3647; color: #ddd; }
+
+.code {
+  position: relative;
+  background: #0a090d;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 10px;
+}
+
+.code pre {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 16px 90px 16px 18px;
+  overflow-x: auto;
+  color: var(--text);
+}
+
+.code .p { color: var(--lime); user-select: none; }
+.code .c { color: #6f6980; }
+
+.copy {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--card);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.copy { transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
+.copy:hover { color: var(--text); border-color: var(--muted); transform: translateY(-2px) scale(1.05); }
+.copy:active { transform: scale(0.95); }
+.copy.done { color: #111; background: var(--lime); border-color: var(--lime); }
+
+.note {
+  margin-top: 26px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #7ad7ff12;
+  border: 1px solid #7ad7ff33;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.note b { color: var(--sky); }
+
+footer {
+  padding: 50px 0 70px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+footer .made {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 13px;
+  border: 1px dashed var(--line);
+  padding: 8px 14px;
+  border-radius: 999px;
+  transform: rotate(-1deg);
+}
+
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 36px;
+}
+
+.persona {
+  background: var(--p-panel);
+  border: 1.5px solid var(--p-edge);
+  border-radius: 20px;
+  padding: 18px;
+  color: var(--p-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: transform 0.25s cubic-bezier(.2, 1.4, .4, 1), box-shadow 0.25s ease, border-color 0.2s ease;
+}
+
+.persona:hover {
+  transform: translateY(-6px) rotate(-0.6deg);
+  border-color: var(--p-accent);
+}
+
+.p-art {
+  height: 130px;
+  border-radius: 14px;
+  background: var(--p-field);
+  border: 1px dashed var(--p-edge);
+  overflow: hidden;
+}
+
+.p-art svg { width: 100%; height: 100%; display: block; }
+.p-art svg * { transform-box: fill-box; transform-origin: center; }
+
+.look-sm { animation: looksm 5s ease-in-out infinite; }
+.sh-ghost { animation: phase 4.5s ease-in-out infinite; }
+.sh-shadow { animation: shpulse 4.5s ease-in-out infinite; }
+.sh-grin { animation: grin 4.5s ease-in-out infinite; }
+.p-shade:hover .sh-grin { animation: none; opacity: 1; }
+.sh-wisp { animation: wisp 5s ease-in-out infinite both; }
+.sh-wisp.w2 { animation-delay: 1.7s; }
+.sh-wisp.w3 { animation-delay: 3.3s; }
+.sh-heh { font-family: var(--mono); font-size: 12px; animation: floatup 3s ease-out infinite both; animation-delay: 1.6s; }
+
+.em-bounce { transform-origin: 50% 100%; animation: bounce 1.2s ease-in-out infinite; }
+.em-shadow { animation: emshadow 1.2s ease-in-out infinite; }
+.em-flame { transform-origin: 50% 100%; animation: flicker 0.35s ease-in-out infinite alternate; }
+.em-spark { animation: rise 2s ease-out infinite both; }
+.em-spark.s2 { animation-delay: 0.4s; }
+.em-spark.s3 { animation-delay: 0.8s; }
+.em-spark.s4 { animation-delay: 1.2s; }
+.em-spark.s5 { animation-delay: 1.6s; }
+.p-ember:hover .em-bounce, .p-ember:hover .em-shadow { animation-duration: 0.6s; }
+.p-ember:hover .em-spark { animation-duration: 1s; }
+
+.lu-breathe { animation: breathe 4s ease-in-out infinite; }
+.lu-shadow { animation: lushadow 4s ease-in-out infinite; }
+.lu-moon { animation: sway 6s ease-in-out infinite; }
+.lu-star { animation: twinkle 2.8s ease-in-out infinite; }
+.lu-star.t2 { animation-delay: 0.9s; }
+.lu-star.t3 { animation-delay: 1.8s; }
+.lu-z { font-family: var(--sans); font-weight: 800; animation: floatup 3.2s ease-out infinite both; }
+.lu-z.z2 { animation-delay: 1.6s; }
+.lu-open { opacity: 0; transition: opacity 0.2s ease; }
+.lu-closed { transition: opacity 0.2s ease; }
+.p-luna:hover .lu-open { opacity: 1; }
+.p-luna:hover .lu-closed, .p-luna:hover .lu-z { opacity: 0; visibility: hidden; }
+
+.as-line { transform-origin: 0% 50%; }
+.as-line.l1 { animation: typeA 4s ease-out infinite; }
+.as-line.l2 { animation: typeB 4s ease-out infinite; }
+.as-line.l3 { animation: typeC 4s ease-out infinite; }
+.as-check { stroke-dasharray: 1; animation: check 4s ease-out infinite; }
+.as-mono { animation: nod 4s ease-in-out infinite; }
+.p-assistant:hover .as-line.l1, .p-assistant:hover .as-line.l2, .p-assistant:hover .as-line.l3, .p-assistant:hover .as-check, .p-assistant:hover .as-mono { animation-duration: 2s; }
+
+.p-name { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.p-status { font-family: var(--mono); font-size: 11px; color: var(--p-muted); }
+.p-status::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--p-accent);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.p-bubble {
+  background: var(--p-bubble);
+  border: 1px solid var(--p-bubble-edge);
+  border-radius: 14px 14px 14px 4px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.p-desc { font-size: 15px; color: var(--p-muted); flex: 1; }
+
+.p-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+.swatches { display: flex; gap: 6px; }
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--p-edge);
+  position: relative;
+  cursor: default;
+  transition: transform 0.15s ease;
+}
+
+.swatch:hover { transform: scale(1.25); }
+
+.swatch::after {
+  content: attr(data-hex);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 10px;
+  background: #000;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.swatch:hover::after { opacity: 1; }
+
+.p-cmd {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--p-accent);
+  background: var(--p-bubble);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.persona-note {
+  margin-top: 26px;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.persona-note code {
+  font-family: var(--mono);
+  font-size: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: var(--lime);
+}
+
+@keyframes looksm {
+  0%, 20% { transform: translate(0, 0); }
+  25%, 45% { transform: translate(1.6px, -0.8px); }
+  50%, 70% { transform: translate(-1.6px, 0.6px); }
+  75%, 95% { transform: translate(0, 1.2px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes phase {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  40% { transform: translateY(-6px); opacity: 1; }
+  52% { transform: translateY(-5px); opacity: 0.2; }
+  64% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes shpulse { 0%, 100% { transform: scaleX(1); opacity: 0.4; } 40% { transform: scaleX(0.75); opacity: 0.25; } 52% { opacity: 0.08; } 64% { opacity: 0.3; } }
+@keyframes grin { 0%, 30% { opacity: 0; transform: scale(0.4); } 38%, 70% { opacity: 1; transform: scale(1); } 78%, 100% { opacity: 0; transform: scale(0.4); } }
+@keyframes wisp { 0% { transform: translateX(-12px); opacity: 0; } 30%, 70% { opacity: 0.35; } 100% { transform: translateX(22px); opacity: 0; } }
+@keyframes bounce {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  40% { transform: translateY(-10px) scale(0.95, 1.05); }
+  55% { transform: translateY(0) scale(1.12, 0.88); }
+  65% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes emshadow { 0%, 100% { transform: scaleX(1); } 40% { transform: scaleX(0.65); } 55% { transform: scaleX(1.15); } 65% { transform: scaleX(1); } }
+@keyframes flicker { from { transform: scaleY(0.9) rotate(-6deg); } to { transform: scaleY(1.25) rotate(6deg); } }
+@keyframes rise {
+  0% { transform: translate(0, 0) scale(1); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(6px, -72px) scale(0.3); opacity: 0; }
+}
+@keyframes breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-4px) scale(1.05); } }
+@keyframes lushadow { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(0.85); } }
+@keyframes sway { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
+@keyframes typeA { 0%, 5% { transform: scaleX(0); } 20%, 85% { transform: scaleX(1); } 93%, 100% { transform: scaleX(0); } }
+@keyframes typeB { 0%, 20% { transform: scaleX(0); } 35%, 85% { transform: scaleX(1); } 93%, 100% { transform: scaleX(0); } }
+@keyframes typeC { 0%, 35% { transform: scaleX(0); } 47%, 85% { transform: scaleX(1); } 93%, 100% { transform: scaleX(0); } }
+@keyframes check { 0%, 50% { stroke-dashoffset: 1; opacity: 1; } 60%, 85% { stroke-dashoffset: 0; opacity: 1; } 93%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes nod { 0%, 55%, 100% { transform: translateY(0); } 59% { transform: translateY(4px); } 64% { transform: translateY(0); } }
+
+@media (max-width: 820px) {
+  .hero, .local-grid { grid-template-columns: 1fr; }
+  .hero { padding: 30px 0 60px; }
+  .features { grid-template-columns: 1fr; }
+  .features > .feature { grid-column: auto; grid-row: auto; }
+  .persona-grid { grid-template-columns: repeat(2, 1fr); }
+  .f-memory .art { min-height: 200px; }
+  .nav-links a:not(.gh-btn) { display: none; }
+  section { padding: 56px 0; }
+  .readme-body { padding: 20px; }
+}
+
+@media (max-width: 520px) {
+  .persona-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav>
+    <a href="#" class="logo"><span class="logo-dot"></span>twin</a>
+    <div class="nav-links">
+      <a href="#local">why local</a>
+      <a href="#features">stuff it does</a>
+      <a href="#personas">personas</a>
+      <a href="#install">install</a>
+      <a class="gh-btn" href="https://github.com/woustachemax/digital-twin">★ github</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div>
+      <span class="badge">🛠 v0.0.1 · built at a hackathon · held together with tape</span>
+      <h1>a tiny buddy that lives on your <span class="squiggle">Mac.</span></h1>
+      <p class="tagline">Twin floats on your desktop, knows roughly what you've been up to, and <b>keeps all of it on your machine.</b></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#install">get twin →</a>
+        <a class="btn btn-ghost" href="https://github.com/woustachemax/digital-twin">read the source</a>
+      </div>
+      <p class="hint">summon it anytime with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>space</kbd></p>
+    </div>
+
+    <div class="stage" aria-hidden="true">
+      <div class="menubar"><span> Finder  File  Edit</span><span>🔋 11:42</span></div>
+      <div class="bubble">
+        hey! you've been ordering a lot of takeout this week. rough deadline? want me to help you plan something easier for tonight?
+        <span class="typing">twin is being nosy (locally)</span>
+      </div>
+      <div class="blob">
+        <span class="eye l"></span><span class="eye r"></span>
+        <span class="cheek l"></span><span class="cheek r"></span>
+        <span class="mouth"></span>
+      </div>
+      <span class="sparkle s1">✦</span>
+      <span class="sparkle s2">✦</span>
+      <span class="sparkle s3">✦</span>
+      <span class="sticker">100% local brain</span>
+    </div>
+  </header>
+</div>
+
+<section id="local">
+  <div class="wrap local-grid">
+    <div>
+      <p class="eyebrow">// why local</p>
+      <h2>your stuff stays on your laptop.</h2>
+      <p class="lede">Twin keeps everything it knows about you in a DuckDB file sitting right next to the code. No accounts, no sync, no cloud database, no analytics. Twin has no server of its own, so there's nowhere for your data to go.</p>
+      <p class="fineprint">The one thing that leaves your Mac: when you chat, your message goes directly to the Anthropic API for a reply, along with a fuzzy one-line-per-item summary like "spent money on food earlier this week". No amounts, no names, no account numbers. That's it.</p>
+    </div>
+
+    <div class="flow">
+      <div class="flow-row">
+        <div class="flow-icon" style="background:#c6ff4a22">🦆</div>
+        <div class="label">twin.duckdb<small>your activity, on disk, on-device</small></div>
+        <span class="tag stay">stays home</span>
+      </div>
+      <div class="flow-row">
+        <div class="flow-icon" style="background:#ffd35c22">🫧</div>
+        <div class="label">fuzzy summary<small>"got paid yesterday", never "$1,240"</small></div>
+        <span class="tag stay">built locally</span>
+      </div>
+      <div class="flow-row">
+        <div class="flow-icon" style="background:#7ad7ff22">💬</div>
+        <div class="label">api.anthropic.com<small>your chat message + that summary, for the reply</small></div>
+        <span class="tag go">only exit</span>
+      </div>
+      <div class="flow-row">
+        <div class="flow-icon" style="background:#ff7ab822">🚫</div>
+        <div class="label">our servers<small>we don't have any. genuinely.</small></div>
+        <span class="tag never">never</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">// stuff it does</p>
+    <h2>small buddy. surprisingly handy.</h2>
+    <p class="lede">No dashboard, no onboarding flow, no 14-step tour. It's a little bubble on your screen that talks back.</p>
+
+    <div class="features">
+      <div class="feature f-hotkey" style="--accent: var(--lime)">
+        <div class="art">
+          <svg viewBox="0 0 400 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <g class="key k1">
+              <rect class="key-base" x="20" y="66" width="60" height="54" rx="12"/>
+              <g class="key-top"><rect class="key-cap" x="20" y="58" width="60" height="54" rx="12"/><text class="key-label" x="50" y="85">⌘</text></g>
+            </g>
+            <g class="key k2">
+              <rect class="key-base" x="92" y="66" width="60" height="54" rx="12"/>
+              <g class="key-top"><rect class="key-cap" x="92" y="58" width="60" height="54" rx="12"/><text class="key-label" x="122" y="85">⇧</text></g>
+            </g>
+            <g class="key k3">
+              <rect class="key-base" x="164" y="66" width="130" height="54" rx="12"/>
+              <g class="key-top"><rect class="key-cap" x="164" y="58" width="130" height="54" rx="12"/><text class="key-label" x="229" y="85">space</text></g>
+            </g>
+            <g transform="translate(352 114)">
+              <g class="hop">
+                <ellipse cx="0" cy="0" rx="26" ry="24" fill="#c6ff4a"/>
+                <rect x="-11" y="-9" width="6" height="10" rx="3" fill="#111"/>
+                <rect x="5" y="-9" width="6" height="10" rx="3" fill="#111"/>
+                <path d="M-6 6 Q0 12 6 6" fill="none" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>
+              </g>
+            </g>
+            <g class="bub">
+              <rect class="bub-fill" x="304" y="12" width="92" height="44" rx="16"/>
+              <path class="bub-fill" d="M344 54 L352 68 L360 54 Z"/>
+              <circle class="dot d1" cx="334" cy="34" r="4.5"/>
+              <circle class="dot d2" cx="350" cy="34" r="4.5"/>
+              <circle class="dot d3" cx="366" cy="34" r="4.5"/>
+            </g>
+          </svg>
+        </div>
+        <h3>one hotkey away</h3>
+        <p>Hit <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>space</kbd> from anywhere and Twin pops up in a floating bubble. Hit it again and it goes away. No app to switch to.</p>
+      </div>
+
+      <div class="feature f-memory" style="--accent: var(--sky)">
+        <div class="art">
+          <svg viewBox="0 0 200 230" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <rect class="drop" x="58" y="14" width="16" height="11" rx="3" fill="#c6ff4a"/>
+            <rect class="drop dr2" x="80" y="14" width="16" height="11" rx="3" fill="#ff7ab8"/>
+            <rect class="drop dr3" x="102" y="14" width="16" height="11" rx="3" fill="#ffd35c"/>
+            <rect class="drop dr4" x="68" y="14" width="16" height="11" rx="3" fill="#c6ff4a"/>
+            <path class="db-body" d="M45 125 V190 A55 14 0 0 0 155 190 V125"/>
+            <path class="db-ring" d="M45 148 A55 14 0 0 0 155 148"/>
+            <path class="db-ring" d="M45 169 A55 14 0 0 0 155 169"/>
+            <ellipse class="lid" cx="100" cy="125" rx="55" ry="14"/>
+            <g transform="translate(136 104)">
+              <g class="duck">
+                <ellipse cx="0" cy="8" rx="13" ry="9" fill="#ffd35c"/>
+                <circle cx="7" cy="-4" r="7" fill="#ffd35c"/>
+                <path d="M13 -5 L21 -3 L13 -1 Z" fill="#ff9a3c"/>
+                <circle cx="9" cy="-5" r="1.6" fill="#111"/>
+              </g>
+            </g>
+            <text class="caption" x="100" y="222">twin.duckdb · on-device</text>
+          </svg>
+        </div>
+        <h3>remembers what you've been up to</h3>
+        <p>Your recent activity gets indexed into a local DuckDB file, so Twin has a rough picture of your week without you having to explain it.</p>
+      </div>
+
+      <div class="feature f-weird" data-gaze="5" style="--accent: var(--pink)">
+        <div class="art">
+          <svg viewBox="0 0 200 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <text class="fl" x="148" y="44" fill="#ffd35c" font-size="20">?!</text>
+            <text class="fl fl2" x="36" y="50" fill="#ff7ab8" font-size="18">♥</text>
+            <text class="fl fl3" x="158" y="100" fill="#7ad7ff" font-size="16">✦</text>
+            <g transform="translate(100 80)">
+              <g class="squish">
+                <g class="wob">
+                  <path d="M-48 10 C-48 -30 -20 -46 4 -44 C34 -42 50 -20 48 8 C46 36 22 46 -2 46 C-30 46 -48 34 -48 10 Z" fill="#ff7ab8"/>
+                  <g class="eyes">
+                    <ellipse cx="-16" cy="-6" rx="11" ry="13" fill="#fff"/>
+                    <ellipse cx="16" cy="-6" rx="11" ry="13" fill="#fff"/>
+                    <g class="gaze">
+                      <g class="look">
+                        <circle cx="-16" cy="-4" r="5" fill="#111"/>
+                        <circle cx="16" cy="-4" r="5" fill="#111"/>
+                      </g>
+                    </g>
+                  </g>
+                  <ellipse cx="-31" cy="16" rx="7" ry="4" fill="#c6ff4a" opacity="0.7"/>
+                  <ellipse cx="31" cy="16" rx="7" ry="4" fill="#c6ff4a" opacity="0.7"/>
+                  <path class="mouth-s" d="M-10 22 q5 -5 10 0 t10 0" fill="none" stroke="#111" stroke-width="3" stroke-linecap="round"/>
+                  <ellipse class="mouth-o" cx="0" cy="23" rx="5" ry="6" fill="#111"/>
+                </g>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <h3>a little bit weird</h3>
+        <p>Warm, short, a tiny bit nosy. Twin talks like a friend in a speech bubble, not a chatbot writing you a five-paragraph essay with headers.</p>
+      </div>
+
+      <div class="feature f-source" style="--accent: var(--sun)">
+        <div class="art">
+          <svg viewBox="0 0 200 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <text class="brk" x="18" y="40">&lt;/&gt;</text>
+            <g transform="translate(170 34)">
+              <polygon class="star" points="0,-12 3.5,-4 12,-4 5,1.5 7.5,10 0,5 -7.5,10 -5,1.5 -12,-4 -3.5,-4"/>
+            </g>
+            <path class="trunk" d="M20 100 H182"/>
+            <path class="branch" pathLength="1" d="M55 100 C72 100 72 58 95 58 H125 C148 58 148 100 165 100"/>
+            <circle class="commit" cx="30" cy="100" r="6"/>
+            <circle class="commit" cx="55" cy="100" r="6"/>
+            <circle class="commit" cx="110" cy="100" r="6"/>
+            <circle class="commit new cA" cx="95" cy="58" r="6"/>
+            <circle class="commit new cB" cx="125" cy="58" r="6"/>
+            <text class="fork-label cB" x="110" y="42">your fork</text>
+            <circle class="commit cC" cx="165" cy="100" r="7"/>
+          </svg>
+        </div>
+        <h3>fully open source</h3>
+        <p>Every line is on GitHub. Read it, fork it, rip out the parts you don't like, give it a new personality. It's a few hundred lines of Python, not a black box.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="personas">
+  <div class="wrap">
+    <p class="eyebrow">// pick a vibe</p>
+    <h2>four moods. same buddy.</h2>
+    <p class="lede">Twin comes in four flavors. Same local brain, different attitude. Colors below are the exact palettes the app uses.</p>
+
+    <div class="persona-grid">
+      <div class="persona p-shade" data-gaze="1.8" style="--p-panel: #17111F; --p-edge: #3b2c57; --p-accent: #A77BFF; --p-ink: #EEE8F7; --p-muted: #9c96a5; --p-bubble: #281e3a; --p-bubble-edge: #372850; --p-field: #100c16">
+        <div class="p-art">
+            <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <ellipse class="sh-wisp" cx="40" cy="96" rx="20" ry="5" fill="#A77BFF"/>
+              <ellipse class="sh-wisp w2" cx="150" cy="70" rx="16" ry="4" fill="#A77BFF"/>
+              <ellipse class="sh-wisp w3" cx="58" cy="38" rx="12" ry="3" fill="#A77BFF"/>
+              <ellipse class="sh-shadow" cx="100" cy="116" rx="26" ry="4" fill="#000"/>
+              <g transform="translate(100 66) scale(1.6)">
+                <g class="sh-ghost">
+                  <path d="M-18 16 V-6 A18 18 0 0 1 18 -6 V16 L12 11 L6 16 L0 11 L-6 16 L-12 11 Z" fill="#8a66d2" stroke="#664b9a" stroke-width="1.5" stroke-linejoin="round"/>
+                  <g class="eyes">
+                    <ellipse cx="-7" cy="-4" rx="4" ry="5" fill="#FF4F6E"/>
+                    <ellipse cx="7" cy="-4" rx="4" ry="5" fill="#FF4F6E"/>
+                    <g class="gaze"><g class="look look-sm">
+                      <circle cx="-7" cy="-3.5" r="1.8" fill="#17111F"/>
+                      <circle cx="7" cy="-3.5" r="1.8" fill="#17111F"/>
+                    </g></g>
+                  </g>
+                  <path class="sh-grin" d="M-10 5 Q0 14 10 5 Q0 9 -10 5 Z" fill="#EEE8F7"/>
+                </g>
+              </g>
+              <text class="sh-heh" x="146" y="32" fill="#A77BFF">heh.</text>
+            </svg>
+        </div>
+        <div><div class="p-name">Shade</div><div class="p-status">lurking behind windows</div></div>
+        <div class="p-bubble">Heh… you rang? Ask me anything.</div>
+        <p class="p-desc">A mischievous shadow-ghost. Grins a lot, teases a little, still firmly on your side.</p>
+        <div class="p-foot">
+          <div class="swatches"><span class="swatch" style="background: #17111F" data-hex="background #17111F" title="background #17111F"></span><span class="swatch" style="background: #A77BFF" data-hex="accent #A77BFF" title="accent #A77BFF"></span><span class="swatch" style="background: #EEE8F7" data-hex="text #EEE8F7" title="text #EEE8F7"></span><span class="swatch" style="background: #FF4F6E" data-hex="eyes #FF4F6E" title="eyes #FF4F6E"></span></div>
+          <code class="p-cmd">/persona gengar</code>
+        </div>
+      </div>
+      <div class="persona p-ember" style="--p-panel: #1E120D; --p-edge: #562c19; --p-accent: #FF7A3D; --p-ink: #FFEDE4; --p-muted: #aa9a92; --p-bubble: #391e13; --p-bubble-edge: #502918; --p-field: #150d09">
+        <div class="p-art">
+            <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <circle class="em-spark s1" cx="70" cy="108" r="3" fill="#FF7A3D"/><circle class="em-spark s2" cx="128" cy="108" r="2.5" fill="#FFD166"/><circle class="em-spark s3" cx="84" cy="108" r="2" fill="#FFD166"/><circle class="em-spark s4" cx="116" cy="108" r="3" fill="#FF7A3D"/><circle class="em-spark s5" cx="100" cy="108" r="2.5" fill="#FFD166"/>
+              <ellipse class="em-shadow" cx="100" cy="116" rx="26" ry="4" fill="#000" opacity="0.4"/>
+              <g transform="translate(100 74) scale(1.6)">
+                <g class="em-bounce">
+                  <path class="em-flame" d="M-5 -23 Q-7 -31 0 -37 Q1 -30 5 -32 Q8 -26 4 -23 Z" fill="#FFD166"/>
+                  <path d="M-18 16 V-6 A18 18 0 0 1 18 -6 V16 L12 11 L6 16 L0 11 L-6 16 L-12 11 Z" fill="#d26533" stroke="#9a4b27" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M-10 -3 Q-7 -9 -4 -3" fill="none" stroke="#FFD166" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="M4 -3 Q7 -9 10 -3" fill="none" stroke="#FFD166" stroke-width="2.2" stroke-linecap="round"/>
+                  <ellipse cx="0" cy="5" rx="3.2" ry="2.8" fill="#1E120D"/>
+                </g>
+              </g>
+            </svg>
+        </div>
+        <div><div class="p-name">Ember</div><div class="p-status">all fired up</div></div>
+        <div class="p-bubble">Hey hey! Ember's all fired up. What are we doing today?</div>
+        <p class="p-desc">A bright little spark who hypes you up and makes errands sound like an adventure.</p>
+        <div class="p-foot">
+          <div class="swatches"><span class="swatch" style="background: #1E120D" data-hex="background #1E120D" title="background #1E120D"></span><span class="swatch" style="background: #FF7A3D" data-hex="accent #FF7A3D" title="accent #FF7A3D"></span><span class="swatch" style="background: #FFEDE4" data-hex="text #FFEDE4" title="text #FFEDE4"></span><span class="swatch" style="background: #FFD166" data-hex="eyes #FFD166" title="eyes #FFD166"></span></div>
+          <code class="p-cmd">/persona ember</code>
+        </div>
+      </div>
+      <div class="persona p-luna" style="--p-panel: #141828; --p-edge: #383f5e; --p-accent: #A5B4FF; --p-ink: #E7EBFA; --p-muted: #979baa; --p-bubble: #252b42; --p-bubble-edge: #343a57; --p-field: #0e111c">
+        <div class="p-art">
+            <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <g class="lu-moon"><circle cx="160" cy="30" r="12" fill="#A5B4FF"/><circle cx="166" cy="25" r="10.5" fill="#0e111c"/></g>
+              <circle class="lu-star" cx="36" cy="28" r="1.8" fill="#E7EBFA"/>
+              <circle class="lu-star t2" cx="128" cy="18" r="1.4" fill="#A5B4FF"/>
+              <circle class="lu-star t3" cx="176" cy="70" r="1.6" fill="#E7EBFA"/>
+              <text class="lu-z" x="122" y="50" fill="#979baa" font-size="13">z</text>
+              <text class="lu-z z2" x="132" y="40" fill="#979baa" font-size="10">z</text>
+              <ellipse class="lu-shadow" cx="96" cy="116" rx="26" ry="4" fill="#000" opacity="0.35"/>
+              <g transform="translate(96 70) scale(1.6)">
+                <g class="lu-breathe">
+                  <path d="M-18 16 V-6 A18 18 0 0 1 18 -6 V16 L12 11 L6 16 L0 11 L-6 16 L-12 11 Z" fill="#8895d4" stroke="#646e9e" stroke-width="1.5" stroke-linejoin="round"/>
+                  <g class="lu-closed" fill="none" stroke="#E7EBFA" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M-10 -4 Q-7 -1 -4 -4"/>
+                    <path d="M4 -4 Q7 -1 10 -4"/>
+                  </g>
+                  <g class="lu-open" fill="#E7EBFA">
+                    <ellipse cx="-7" cy="-4" rx="2.8" ry="3.8"/>
+                    <ellipse cx="7" cy="-4" rx="2.8" ry="3.8"/>
+                  </g>
+                  <path d="M-3 5 Q0 7.5 3 5" fill="none" stroke="#141828" stroke-width="1.6" stroke-linecap="round"/>
+                </g>
+              </g>
+            </svg>
+        </div>
+        <div><div class="p-name">Luna</div><div class="p-status">here whenever you need me</div></div>
+        <div class="p-bubble">Hi there. Take a breath. What's on your mind?</div>
+        <p class="p-desc">Soft, patient, unhurried. Talks about money without judgment and helps you breathe out.</p>
+        <div class="p-foot">
+          <div class="swatches"><span class="swatch" style="background: #141828" data-hex="background #141828" title="background #141828"></span><span class="swatch" style="background: #A5B4FF" data-hex="accent #A5B4FF" title="accent #A5B4FF"></span><span class="swatch" style="background: #E7EBFA" data-hex="text #E7EBFA" title="text #E7EBFA"></span></div>
+          <code class="p-cmd">/persona calm</code>
+        </div>
+      </div>
+      <div class="persona p-assistant" style="--p-panel: #1E1E20; --p-edge: #3a3a3d; --p-accent: #8E8E93; --p-ink: #F2F2F7; --p-muted: #a1a1a5; --p-bubble: #2b2b2e; --p-bubble-edge: #373739; --p-field: #151516">
+        <div class="p-art">
+            <svg viewBox="0 0 200 130" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <g class="as-mono">
+                <circle cx="52" cy="65" r="24" fill="#78787c" stroke="#5c5c5f" stroke-width="2"/>
+                <text x="52" y="66" fill="#F2F2F7" font-family="-apple-system, system-ui, sans-serif" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="central">A</text>
+              </g>
+              <rect x="90" y="36" width="94" height="58" rx="10" fill="#2b2b2e" stroke="#373739" stroke-width="1.5"/>
+              <rect class="as-line l1" x="102" y="49" width="64" height="6" rx="3" fill="#a1a1a5"/>
+              <rect class="as-line l2" x="102" y="62" width="48" height="6" rx="3" fill="#a1a1a5"/>
+              <rect class="as-line l3" x="102" y="75" width="28" height="6" rx="3" fill="#a1a1a5"/>
+              <path class="as-check" pathLength="1" d="M150 77 L156 83 L168 70" fill="none" stroke="#8E8E93" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+        <div><div class="p-name">Assistant</div><div class="p-status">ready</div></div>
+        <div class="p-bubble">Hi. How can I help?</div>
+        <p class="p-desc">No quirks, no puns, no ghost. Clear, neutral answers. The default if you pick nothing.</p>
+        <div class="p-foot">
+          <div class="swatches"><span class="swatch" style="background: #1E1E20" data-hex="background #1E1E20" title="background #1E1E20"></span><span class="swatch" style="background: #8E8E93" data-hex="accent #8E8E93" title="accent #8E8E93"></span><span class="swatch" style="background: #F2F2F7" data-hex="text #F2F2F7" title="text #F2F2F7"></span></div>
+          <code class="p-cmd">/persona plain</code>
+        </div>
+      </div>
+    </div>
+
+    <p class="persona-note">Pick one at launch with <code>PERSONA=gengar python3 buddy.py</code>, or switch live by typing <code>/persona &lt;name&gt;</code> in chat. Use the lowercase name on each card. Pick nothing and you get Assistant.</p>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">// install</p>
+    <h2>four commands. that's the installer.</h2>
+    <p class="lede">No .dmg yet. We're a hackathon project, so you get the terminal version.</p>
+
+    <div class="readme">
+      <div class="readme-head">📄 README.md</div>
+      <div class="readme-body">
+        <h3>twin</h3>
+        <div class="shields">
+          <span class="shield"><span>platform</span><span style="background:var(--lime);color:#111">macOS</span></span>
+          <span class="shield"><span>storage</span><span style="background:var(--sun);color:#111">duckdb</span></span>
+          <span class="shield"><span>status</span><span style="background:var(--pink);color:#111">very early</span></span>
+        </div>
+        <p>A local-first desktop buddy. Needs Python 3 and an <code class="inline">ANTHROPIC_API_KEY</code>.</p>
+
+        <h4>1. grab the code</h4>
+        <div class="code">
+          <pre><span class="p">$ </span>git clone https://github.com/woustachemax/digital-twin.git
+<span class="p">$ </span>cd digital-twin</pre>
+          <button class="copy" data-cmd="git clone https://github.com/woustachemax/digital-twin.git&#10;cd digital-twin">copy</button>
+        </div>
+
+        <h4>2. install dependencies</h4>
+        <div class="code">
+          <pre><span class="p">$ </span>pip install -r requirements.txt</pre>
+          <button class="copy" data-cmd="pip install -r requirements.txt">copy</button>
+        </div>
+
+        <h4>3. add your api key</h4>
+        <div class="code">
+          <pre><span class="p">$ </span>cp .env.example .env
+<span class="c"># then open .env and set ANTHROPIC_API_KEY=sk-ant-...</span></pre>
+          <button class="copy" data-cmd="cp .env.example .env">copy</button>
+        </div>
+
+        <h4>4. say hi</h4>
+        <div class="code">
+          <pre><span class="p">$ </span>python3 buddy.py</pre>
+          <button class="copy" data-cmd="python3 buddy.py">copy</button>
+        </div>
+
+        <div class="note"><b>heads up:</b> macOS will ask for Accessibility permission the first time so the global hotkey can work. Say yes, or Twin can't hear you.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="made">made with too much coffee and not enough sleep</span>
+  </div>
+</footer>
+
+<script>
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise(function (resolve, reject) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    ok ? resolve() : reject();
+  });
+}
+
+document.querySelectorAll(".copy").forEach(function (btn) {
+  var timer;
+  btn.addEventListener("click", function () {
+    copyText(btn.dataset.cmd).then(function () {
+      btn.textContent = "copied!";
+      btn.classList.add("done");
+    }, function () {
+      btn.textContent = "select it";
+    }).then(function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        btn.textContent = "copy";
+        btn.classList.remove("done");
+      }, 1400);
+    });
+  });
+});
+document.querySelectorAll("[data-gaze]").forEach(function (card) {
+  var gaze = card.querySelector(".gaze");
+  var eyes = card.querySelector(".eyes");
+  var max = parseFloat(card.dataset.gaze) || 5;
+  card.addEventListener("mousemove", function (e) {
+    var r = eyes.getBoundingClientRect();
+    var dx = e.clientX - (r.left + r.width / 2);
+    var dy = e.clientY - (r.top + r.height / 2);
+    var d = Math.hypot(dx, dy) || 1;
+    var m = Math.min(max, d / 18);
+    gaze.setAttribute("transform", "translate(" + (dx / d * m).toFixed(2) + " " + (dy / d * m).toFixed(2) + ")");
+    card.classList.add("tracking");
+  });
+  card.addEventListener("mouseleave", function () {
+    gaze.removeAttribute("transform");
+    card.classList.remove("tracking");
+  });
+});
+</script>
+</body>
+</html>
