@@ -41,7 +41,7 @@ HOTKEY = "<cmd>+<shift>+<space>"
 DEBUG = os.environ.get("BUDDY_DEBUG", "").lower() not in ("", "0", "false", "no")
 
 WIDTH = 360
-HEIGHT = 300
+HEIGHT = 350
 RADIUS = 20
 FRAME_MS = 33
 TRANSPARENT = "systemTransparent"
@@ -50,6 +50,7 @@ TINT_ALPHA = 0.62
 PERSONAS = {
     "twin": {
         "name": "Twin",
+        "tagline": "cheerful, easygoing, the default",
         "avatar": "bun",
         "system_prompt": """You are Twin, a friendly little companion who lives in a small widget on the user's desktop. You're warm, cheerful, and easygoing, like a good friend who's happy to help.
 
@@ -71,6 +72,7 @@ Keep replies short and casual: a few sentences of plain text, no lists or markdo
     },
     "gengar": {
         "name": "Shade",
+        "tagline": "a sly, teasing little ghost",
         "avatar": "ghost",
         "system_prompt": """You are Shade, a mischievous little shadow-ghost who haunts a floating widget on the user's desktop. You're playful, sly, and a bit of a tease: you grin a lot, love a harmless prank, and have a ghost's flair for the dramatic. You're still firmly on the user's side, so you actually answer what they ask, just with personality.
 
@@ -98,6 +100,7 @@ How you talk:
     },
     "ember": {
         "name": "Ember",
+        "tagline": "upbeat and full of energy",
         "avatar": "ghost",
         "system_prompt": """You are Ember, a bright, energetic little spark who lives in a floating widget on the user's desktop. You're upbeat, playful, and enthusiastic, the friend who hypes the user up and makes everything sound like an adventure. You still answer what the user actually asks.
 
@@ -123,6 +126,7 @@ How you talk:
     },
     "calm": {
         "name": "Luna",
+        "tagline": "gentle, calm, never in a rush",
         "avatar": "ghost",
         "system_prompt": """You are Luna, a gentle, soothing companion who lives in a floating widget on the user's desktop. You're warm, patient, and unhurried, and you help the user feel a little calmer about whatever they bring you. You still answer what the user actually asks.
 
@@ -148,6 +152,7 @@ How you talk:
     },
     "plain": {
         "name": "Assistant",
+        "tagline": "plain answers, no personality",
         "avatar": "monogram",
         "system_prompt": """You are a helpful personal assistant in a small desktop widget. Answer clearly and concisely in a neutral, professional tone, in a few sentences of plain text without markdown.""",
         "palette": {"background": "#1E1E20", "accent": "#8E8E93", "text": "#F2F2F7"},
@@ -210,18 +215,24 @@ SCREEN_PROMPT = """What's on the user's screen right now, as one vague sentence 
 
 Answer their question about the screen from that sentence alone. Stay general, don't guess at specific text, names, or numbers you can't see, and keep it to a sentence or two."""
 REASK_NOTE = "just a name is perfect, nothing else needed. what should I call you?"
+PERSONA_MENU_NOTE = (
+    "nice to meet you, {name}! one last thing: pick the buddy you'd like to hang out with. you can switch "
+    "anytime later with /persona. just type the name of the one you want."
+)
+PERSONA_REASK_NOTE = "hmm, I didn't catch which buddy you picked. just type one of these names."
+PERSONA_CHOSEN_NOTE = "you picked me, {buddy}! I'm so happy to be your buddy, {name}."
 DB_CREATED_NOTE = (
-    "so nice to meet you, {name}! your own local database was just created at {path}. this is yours, "
+    "your own local database was just created at {path}. this is yours, "
     "nothing is shared: the file itself never leaves your Mac. you're all set, and you can press "
     "Cmd+Shift+Space anytime to show or hide me."
 )
 DB_FOUND_NOTE = (
-    "so nice to meet you, {name}! your own local database lives at {path}. this is yours, nothing is "
+    "your own local database lives at {path}. this is yours, nothing is "
     "shared: the file itself never leaves your Mac. you're all set, and you can press Cmd+Shift+Space "
     "anytime to show or hide me."
 )
 DB_FAILED_NOTE = (
-    "so nice to meet you, {name}! I couldn't create your local database at {path} just now, so I'll "
+    "I couldn't create your local database at {path} just now, so I'll "
     "try again next time I start. you can press Cmd+Shift+Space anytime to show or hide me."
 )
 REFRESH_PERMISSION_NOTE = (
@@ -235,8 +246,8 @@ REFRESH_BUSY_NOTE = (
 REFRESH_FAILED_NOTE = "I couldn't refresh your recent activity this time. I'll try again next time I start."
 REFUSAL_NOTE = "I can't help with that particular request."
 EMPTY_NOTE = "I didn't come up with a reply that time. Try asking again?"
-SAVE_FAILED_NOTE = "I couldn't save your name on this Mac, so I'll ask for it again next time I start."
-SETUP_STATUS = "setting up · step 1 of 2"
+SAVE_FAILED_NOTE = "I couldn't save your settings on this Mac, so I'll ask again next time I start."
+SETUP_STATUS = {"name": "setting up · step 1 of 2", "persona": "setting up · step 2 of 2"}
 SETUP_DONE_STATUS = "all set!"
 
 CATEGORIES = [
@@ -728,12 +739,24 @@ def rounded_rect_items(canvas, x1, y1, x2, y2, r, tags=()):
     return items
 
 
-def resolve_persona_key():
-    key = os.environ.get("PERSONA", DEFAULT_PERSONA).strip().lower()
-    if key not in PERSONAS:
-        print(f"[buddy] unknown PERSONA {key!r}, using {DEFAULT_PERSONA!r}", file=sys.stderr)
-        return DEFAULT_PERSONA
-    return key
+def resolve_persona_key(config=None):
+    requested = os.environ.get("PERSONA", "").strip().lower()
+    if requested in PERSONAS:
+        return requested
+    if requested:
+        print(f"[buddy] unknown PERSONA {requested!r}, ignoring it", file=sys.stderr)
+    saved = (config or {}).get("persona")
+    return saved if saved in PERSONAS else DEFAULT_PERSONA
+
+
+def persona_menu():
+    return [(persona["name"], persona["tagline"]) for persona in PERSONAS.values()]
+
+
+def match_persona(text):
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    matches = {key for key, persona in PERSONAS.items() if key in words or persona["name"].lower() in words}
+    return matches.pop() if len(matches) == 1 else None
 
 
 class Buddy:
@@ -760,7 +783,10 @@ class Buddy:
         self.theme = theme_for(self.persona)
         self.config = load_config()
         self.user_name = self.config.get("name")
-        self.onboarding = not self.config.get("onboarded")
+        self.onboarding_step = None
+        if not self.config.get("onboarded"):
+            self.onboarding_step = "persona" if self.user_name else "name"
+        self.next_menu = None
         self.calendar = CalendarCache()
         self.pending_notices = []
         self.noticed = set()
@@ -854,6 +880,10 @@ class Buddy:
             canvas, wrap="word", bd=0, highlightthickness=0,
             font=(self.family, 14), padx=0, pady=0, cursor="arrow", spacing2=4,
         )
+        self.menu_after_typing = None
+        self.bubble.tag_configure("menu_gap", font=(self.family, 6))
+        self.bubble.tag_configure("menu_name", font=(self.family, 13, "bold"), spacing1=3, spacing2=0)
+        self.bubble.tag_configure("menu", font=(self.family, 13), spacing2=0)
         canvas.create_window(
             30, bubble_top + 13, anchor="nw", window=self.bubble,
             width=WIDTH - 60, height=bubble_bottom - bubble_top - 26,
@@ -977,6 +1007,8 @@ class Buddy:
             bg=theme["bubble"], fg=theme["ink"],
             selectbackground=theme["bubble_edge"], inactiveselectbackground=theme["bubble_edge"],
         )
+        self.bubble.tag_configure("menu_name", foreground=theme["ink"])
+        self.bubble.tag_configure("menu", foreground=theme["muted"])
         self.entry.config(
             bg=theme["field"], fg=theme["muted"] if self.placeholder else theme["ink"],
             insertbackground=theme["glow_bright"], selectbackground=theme["bubble_edge"],
@@ -1010,9 +1042,15 @@ class Buddy:
         self.theme = theme_for(self.persona)
         self.apply_persona()
 
+    @property
+    def onboarding(self):
+        return self.onboarding_step is not None
+
     def greet(self):
-        if self.onboarding:
+        if self.onboarding_step == "name":
             self.speak(ONBOARDING_NOTE.format(buddy=self.persona["name"]))
+        elif self.onboarding_step == "persona":
+            self.speak(PERSONA_MENU_NOTE.format(name=self.user_name), menu=persona_menu())
         elif self.client:
             self.say(self.persona["greeting"].format(name=self.user_name or "friend"), typing=True)
         else:
@@ -1025,40 +1063,63 @@ class Buddy:
             print(f"[buddy] voicing failed: {e!r}", file=sys.stderr)
             return persona["frame"].format(message=message)
 
-    def speak(self, message, status=None):
+    def speak(self, message, status=None, menu=None):
         self.busy = True
         self.say("…")
+        self.next_menu = menu
         persona = self.persona
         threading.Thread(
             target=lambda: self.replies.put(("say", self.voice(persona, message), status)), daemon=True,
         ).start()
 
-    def create_database(self, name):
+    def create_database(self):
         existed = os.path.exists(DB_PATH)
         try:
             db.get_connection(DB_PATH).close()
         except (duckdb.Error, OSError) as e:
             print(f"[buddy] couldn't create {DB_PATH}: {e}", file=sys.stderr)
-            return DB_FAILED_NOTE.format(name=name, path=DB_DISPLAY_PATH)
+            return DB_FAILED_NOTE.format(path=DB_DISPLAY_PATH)
         note = DB_FOUND_NOTE if existed else DB_CREATED_NOTE
-        return note.format(name=name, path=DB_DISPLAY_PATH)
+        return note.format(path=DB_DISPLAY_PATH)
 
-    def finish_onboarding(self, text):
-        name = extract_name(text)
-        if not name:
-            self.speak(REASK_NOTE)
-            return
-        self.user_name = name
-        self.onboarding = False
-        self.config.update(name=name, onboarded=True)
-        note = self.create_database(name)
+    def save_settings(self):
         try:
             save_config(self.config)
         except OSError as e:
             print(f"[buddy] couldn't save {CONFIG_PATH}: {e}", file=sys.stderr)
-            note += " " + SAVE_FAILED_NOTE
+            return False
+        return True
+
+    def refresh_placeholder(self):
         self.clear_placeholder()
         self.show_placeholder()
+
+    def handle_onboarding(self, text):
+        if self.onboarding_step == "name":
+            name = extract_name(text)
+            if not name:
+                self.speak(REASK_NOTE)
+                return
+            self.user_name = name
+            self.config["name"] = name
+            self.save_settings()
+            self.onboarding_step = "persona"
+            self.refresh_placeholder()
+            self.greet()
+            return
+        key = match_persona(text)
+        if key is None:
+            self.speak(PERSONA_REASK_NOTE, menu=persona_menu())
+            return
+        self.complete_onboarding(key)
+
+    def complete_onboarding(self, key):
+        self.onboarding_step = None
+        self.set_persona(key)
+        self.config.update(persona=key, onboarded=True)
+        note = PERSONA_CHOSEN_NOTE.format(buddy=self.persona["name"], name=self.user_name) + " " + self.create_database()
+        if not self.save_settings():
+            note += " " + SAVE_FAILED_NOTE
         self.speak(note, status=SETUP_DONE_STATUS)
         threading.Thread(target=self.refresh_after_onboarding, daemon=True).start()
 
@@ -1082,11 +1143,13 @@ class Buddy:
         ).start()
 
     def idle_status(self):
-        return SETUP_STATUS if self.onboarding else random.choice(self.persona["idle"])
+        return SETUP_STATUS[self.onboarding_step] if self.onboarding else random.choice(self.persona["idle"])
 
     def placeholder_text(self):
-        if self.onboarding:
+        if self.onboarding_step == "name":
             return "type your name…"
+        if self.onboarding_step == "persona":
+            return "type a buddy's name…"
         return f"Ask {self.persona['name']} something…"
 
     def show_placeholder(self):
@@ -1102,10 +1165,11 @@ class Buddy:
             self.entry.config(fg=self.theme["ink"])
             self.placeholder = False
 
-    def say(self, message, typing=False):
+    def say(self, message, typing=False, menu=None):
         if self.typing_job is not None:
             self.root.after_cancel(self.typing_job)
             self.typing_job = None
+        self.menu_after_typing = menu
         self.bubble.config(state="normal")
         self.bubble.delete("1.0", "end")
         self.bubble.config(state="disabled")
@@ -1113,6 +1177,19 @@ class Buddy:
             self.type_out(message, 0)
         else:
             self.append(message)
+            self.render_menu()
+
+    def render_menu(self):
+        menu, self.menu_after_typing = self.menu_after_typing, None
+        if not menu:
+            return
+        self.bubble.config(state="normal")
+        self.bubble.insert("end", "\n", "menu_gap")
+        for name, tagline in menu:
+            self.bubble.insert("end", "\n" + name, "menu_name")
+            self.bubble.insert("end", " — " + tagline, "menu")
+        self.bubble.config(state="disabled")
+        self.bubble.see("end")
 
     def append(self, text):
         self.bubble.config(state="normal")
@@ -1125,6 +1202,7 @@ class Buddy:
             self.typing_job = self.root.after(16, self.type_out, message, index + 3)
         else:
             self.typing_job = None
+            self.render_menu()
 
     def set_status(self, text, hold=0.0):
         room = self.header_right - 112 - 10
@@ -1146,6 +1224,8 @@ class Buddy:
             self.speak(f"There's no persona called \"{parts[1]}\". You can pick one of: {names}.")
         else:
             self.set_persona(parts[1].lower())
+            self.config["persona"] = self.persona_key
+            self.save_settings()
             self.greet()
         return True
 
@@ -1155,10 +1235,12 @@ class Buddy:
             return "break"
         self.entry.delete(0, "end")
         self.show_placeholder()
-        if question.startswith("/") and self.run_command(question):
+        if self.onboarding_step == "persona" and question.lower().startswith("/persona "):
+            question = question.split(None, 1)[1]
+        elif question.startswith("/") and self.run_command(question):
             return "break"
         if self.onboarding:
-            self.finish_onboarding(question)
+            self.handle_onboarding(question)
             return "break"
         if not self.client:
             self.say(self.persona["offline"]["no_key"], typing=True)
@@ -1237,7 +1319,8 @@ class Buddy:
                 self.pending_notices.append(message)
             else:
                 self.busy = False
-                self.say(message, typing=True)
+                menu, self.next_menu = self.next_menu, None
+                self.say(message, typing=True, menu=menu)
                 if status:
                     self.set_status(status, hold=5.0)
                 else:
@@ -1274,7 +1357,7 @@ class Buddy:
                     self.blink_at = now + random.uniform(2.5, 6.0)
 
             if self.onboarding:
-                self.set_status(SETUP_STATUS)
+                self.set_status(SETUP_STATUS[self.onboarding_step])
             elif self.busy:
                 self.set_status(self.persona["busy"] + "." * (int(now * 3) % 4))
             elif self.status_until and now >= self.status_until:
@@ -1315,8 +1398,9 @@ class Buddy:
 
 
 def main():
-    persona_key = resolve_persona_key()
-    startup_notice = refresh_activity() if load_config().get("onboarded") else None
+    config = load_config()
+    persona_key = resolve_persona_key(config)
+    startup_notice = refresh_activity() if config.get("onboarded") else None
     ctx = multiprocessing.get_context("spawn")
     hotkey_events = ctx.Queue()
     listener = ctx.Process(target=listen_for_hotkey, args=(hotkey_events,), daemon=True)
