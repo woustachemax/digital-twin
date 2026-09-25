@@ -54,6 +54,10 @@ This started as a hackathon project. It's about 3,500 lines of Python and meant 
 3. **Store.** Parsed transactions go into `~/.twin/twin.duckdb`. Every insert also writes a row to an `access_log` table that records what was read and when. Messages already stored are skipped.
 4. **Chat.** `buddy.py` reads the five most recent transactions, turns them into vague phrases like "spent money on food and dining earlier this week", adds today's calendar events, and sends that with your message to your provider. The reply appears in the widget.
 
+5. **Nudge.** On launch and every 15 minutes, Twin compares upcoming calendar events (next 24 hours) with your last three days of Messages, all on your Mac. If a message about the same kind of thing (travel, an appointment, a meeting, plans) also carries a cue (a payment, something to bring, a change of plans, a reminder), the bubble gets one line such as "Flight to X is tomorrow, and a recent message mentions something about a payment." No provider request is made for it.
+
+6. **Catch-up.** Ask "what did I miss?" or "catch me up" and Twin counts today's incoming messages by vague topic (plans, payments, travel, appointments, work, deliveries, bank alerts, other) and answers with something like "Today you got a few messages about plans and one message about a payment. Nothing looks urgent." It's built on your Mac from counts only, never quotes a message, and makes no provider request, so it works without an API key.
+
 ## Repository layout
 
 ```
@@ -65,6 +69,8 @@ digital-twin/
 ├── packages/
 │   ├── ingest/
 │   │   ├── imessage_export.py  reads recent messages from ~/Library/Messages/chat.db
+│   │   ├── digest.py           counts today's messages by vague topic for the catch-up summary
+│   │   ├── nudges.py           matches upcoming events to recent messages, returns only a vague cue
 │   │   ├── calendar_reader.py  reads today's and tomorrow's events through EventKit
 │   │   └── screen_reader.py    one screenshot, on-device text recognition, deleted right after
 │   ├── parse/
@@ -178,6 +184,7 @@ Closing the window before finishing quits Twin, and it starts from step 1 next t
 | List personas | `/persona`, then click one to switch |
 | Switch persona | `/persona <key>`, for example `/persona gengar` |
 | Change provider or key | `/setup` |
+| Catch up on today's Messages | "what did I miss?", "catch me up" |
 | Ask about your screen | "what am I looking at?", "what's on my screen?" |
 
 Twin fills in context on its own. Ask "what should I be doing?" and it may mention your next calendar event. Ask "have I been spending a lot?" and it answers from the vague summary, never with amounts.
@@ -239,6 +246,7 @@ To add your own persona, add an entry to the `PERSONAS` dict with `name`, `tagli
 | `TWIN_DB_PATH` | `~/.twin/twin.duckdb` | Database used by the pipeline, `buddy.py`, and the monitor. |
 | `TWIN_CONFIG_PATH` | `~/.twin/config.json` | Where your name, persona, provider, and setup state are saved. |
 | `TWIN_OCR_SHORTCUT` | `Twin Extract Text` | Shortcut used for text recognition if the Vision package isn't installed. |
+| `TWIN_NUDGE_MINUTES` | `15` (or `nudge_minutes` in `config.json`) | How often Twin checks Messages against upcoming events. `0` turns nudges off. |
 | `BUDDY_DEBUG` | off | Set to `1` to print every outgoing API request to stderr. See [Privacy](#privacy). |
 
 Constants near the top of `buddy.py` cover the rest: `MAX_TOKENS`, `HOTKEY`, widget size, and how often the calendar is refreshed (every 5 minutes, or 30 seconds after an error).
@@ -278,6 +286,8 @@ Each chat message makes one request to the provider you picked, containing:
 - the titles and times of today's calendar events
 - a vague summary of up to five recent transactions, such as `- received a payment yesterday`
 - when you ask about your screen, one sentence describing it, such as "They're in Mail, looking at what seems to be an email inbox."
+
+Nudges are built and shown entirely on your Mac and are never sent anywhere. They contain the event title (scrubbed like any other) and one of four fixed phrases, never message text. Which nudges were shown is kept in `~/.twin/nudged.json` as hashes so the same one isn't repeated.
 
 It never includes amounts, balances, account numbers, reference numbers, merchant names, UPI handles, raw SMS text, screenshots, or text read from your screen.
 

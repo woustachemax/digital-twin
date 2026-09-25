@@ -27,7 +27,10 @@ sys.path.insert(0, BASE_DIR)
 
 import calendar_reader
 import db
+import digest
+import imessage_export
 import llm_providers
+import nudges
 import run_pipeline
 import screen_reader
 from llm_providers import PROVIDERS, ProviderError
@@ -37,6 +40,8 @@ DB_DISPLAY_PATH = DB_PATH.replace(os.path.expanduser("~"), "~", 1)
 CONFIG_PATH = Path(os.environ.get("TWIN_CONFIG_PATH", "~/.twin/config.json")).expanduser()
 CALENDAR_TTL = 300
 CALENDAR_RETRY = 30
+NUDGE_MINUTES = 15
+NUDGED_PATH = CONFIG_PATH.with_name("nudged.json")
 MAX_TOKENS = 1024
 HOTKEY = "<cmd>+<shift>+<space>"
 HOTKEY_FLAG = "--hotkey-listener"
@@ -268,6 +273,16 @@ DISPLAY_FONT = "Bricolage Grotesque"
 MONO_FONT = "JetBrains Mono"
 JOURNEY = ("provider", "API key", "your name", "buddy")
 PERSONA_LIST_NOTE = "I'm {name} right now. Click a buddy below to switch, or type /persona and a name."
+CATCH_UP_RE = re.compile(
+    r"\b(?:what\s+(?:did|have|had)\s+i\s+miss(?:ed)?|what\s+i\s+missed|anything\s+(?:i\s+)?missed|catch\s+me\s+up"
+    r"|summari[sz]e\s+my\s+(?:messages|texts))\b",
+    re.I,
+)
+DIGEST_UNREADABLE_NOTE = (
+    "I couldn't read your Messages just now. Give Twin Full Disk Access in System Settings → Privacy & "
+    "Security → Full Disk Access, then ask again."
+)
+DIGEST_LIMIT = 500
 
 CATEGORIES = [
     ("food and dining", ("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "pizza", "mcdonald", "kfc", "eatsure")),
@@ -557,6 +572,67 @@ def save_config(config):
         json.dump(config, f, indent=2)
     os.chmod(temp_path, 0o600)
     os.replace(temp_path, CONFIG_PATH)
+
+
+def load_nudged():
+    try:
+        with open(NUDGED_PATH) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_nudged(nudged):
+    try:
+        NUDGED_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(NUDGED_PATH, "w") as f:
+            json.dump(nudged, f)
+        os.chmod(NUDGED_PATH, 0o600)
+    except OSError as e:
+        print(f"[buddy] couldn't save nudge history: {e!r}", file=sys.stderr)
+
+
+def nudge_interval_seconds(config):
+    raw = os.environ.get("TWIN_NUDGE_MINUTES", config.get("nudge_minutes", NUDGE_MINUTES))
+    try:
+        minutes = float(raw)
+    except (TypeError, ValueError):
+        minutes = NUDGE_MINUTES
+    return max(minutes, 1.0) * 60 if minutes > 0 else 0
+
+
+def is_catch_up(text):
+    return bool(CATCH_UP_RE.search(text.replace("\u2019", "'")))
+
+
+def is_bank_sms(text):
+    return bool(SMS_MARKER_RE.search(text)) and bool(re.search(r"\d", text))
+
+
+def build_digest():
+    """Today's Messages as counts by vague topic. Built on this Mac and never sent to a provider."""
+    try:
+        messages = imessage_export.fetch_last_messages(DIGEST_LIMIT)
+    except (PermissionError, sqlite3.Error, OSError) as e:
+        print(f"[buddy] digest couldn't read Messages: {e!r}", file=sys.stderr)
+        return DIGEST_UNREADABLE_NOTE
+    return digest.summarize(messages, is_bank=is_bank_sms)
+
+
+def check_nudges(events, seen):
+    """Match upcoming events to recent Messages on this Mac. Only a vague sentence comes back."""
+    try:
+        messages = imessage_export.fetch_last_messages()
+    except (PermissionError, sqlite3.Error, OSError) as e:
+        print(f"[buddy] nudge check couldn't read Messages: {e!r}", file=sys.stderr)
+        return []
+    found = nudges.find_nudges(events, messages, skip=lambda text: bool(SMS_MARKER_RE.search(text)), seen=seen)
+    print(f"[buddy] nudge check: {len(messages)} messages, {len(found)} nudge(s)", file=sys.stderr)
+    for nudge in found:
+        title, _ = scrub(nudge["event"]["title"][:CALENDAR_TITLE_LIMIT], strict=False)
+        nudge["text"] = nudges.nudge_text(nudge, title)
+    return found[:1]
 
 
 def extract_name(text):
@@ -916,6 +992,7 @@ class Buddy:
         if startup_notice:
             self.notify(startup_notice)
         threading.Thread(target=self.prefetch_calendar, daemon=True).start()
+        threading.Thread(target=self.nudge_loop, daemon=True).start()
         self.poll()
         self.animate()
 
@@ -1311,6 +1388,38 @@ class Buddy:
         if error:
             self.replies.put(("raw_notice", error, None))
 
+    def nudge_loop(self):
+        interval = nudge_interval_seconds(self.config)
+        if not interval:
+            return
+        time.sleep(5)
+        while True:
+            try:
+                if not self.onboarding:
+                    self.run_nudge_check()
+            except Exception as e:
+                print(f"[buddy] nudge check failed: {e!r}", file=sys.stderr)
+            time.sleep(interval)
+
+    def run_nudge_check(self):
+        events, _ = self.calendar.get()
+        if not events:
+            return
+        now = datetime.now()
+        nudged = {k: v for k, v in load_nudged().items() if v > now.timestamp()}
+        for nudge in check_nudges(events, nudged):
+            nudged[nudge["key"]] = nudge["event"]["start"].timestamp() + 86400
+            save_nudged(nudged)
+            self.replies.put(("nudge", nudge["text"], None))
+
+    def peek(self):
+        self.visible = True
+        self.root.deiconify()
+        self.root.lift()
+        self.root.attributes("-topmost", True)
+        if self.nswindow is not None:
+            self.root.after(50, self.nswindow.invalidateShadow)
+
     def notify(self, message):
         if message in self.noticed:
             return
@@ -1436,6 +1545,11 @@ class Buddy:
         if self.onboarding:
             self.handle_onboarding(question)
             return "break"
+        if is_catch_up(question):
+            self.busy = True
+            self.say("…")
+            threading.Thread(target=self.catch_up, args=(self.persona,), daemon=True).start()
+            return "break"
         if not self.client:
             self.say(offline_line(self.persona, "no_key", self.client), typing=True)
             return "break"
@@ -1448,6 +1562,14 @@ class Buddy:
             target=self.answer, args=(self.persona, question, self.user_name), daemon=True,
         ).start()
         return "break"
+
+    def catch_up(self, persona):
+        try:
+            reply = persona["frame"].format(message=build_digest())
+        except Exception as e:
+            print(f"[buddy] catch-up failed: {e!r}", file=sys.stderr)
+            reply = offline_line(persona, "broken", self.client)
+        self.replies.put(("reply", reply, persona["done"]))
 
     def look_at_screen(self, question):
         self.busy = True
@@ -1513,6 +1635,10 @@ class Buddy:
                 self.notify(message)
             elif kind == "notice":
                 self.pending_notices.append(message)
+            elif kind == "nudge":
+                self.pending_notices.append(self.persona["frame"].format(message=message))
+                if not self.visible:
+                    self.peek()
             else:
                 self.busy = False
                 menu, self.next_menu = self.next_menu, None

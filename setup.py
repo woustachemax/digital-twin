@@ -58,6 +58,8 @@ OPTIONS = {
         "calendar_reader",
         "screen_reader",
         "imessage_export",
+        "nudges",
+        "digest",
         "sms_parser",
         "db",
         "run_pipeline",
