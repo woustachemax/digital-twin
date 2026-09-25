@@ -3,3 +3,7 @@ twin.duckdb
 __pycache__/
 packages/*/__pycache__/
 landing/node_modules/
+__pycache__/
+build/
+dist/
+*.egg-info/

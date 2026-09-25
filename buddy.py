@@ -1,20 +1,20 @@
 import json
 import math
-import multiprocessing
 import os
 import queue
 import random
 import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
-from datetime import datetime
+import webbrowser
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import anthropic
 import duckdb
 from dotenv import load_dotenv
 
@@ -27,21 +27,27 @@ sys.path.insert(0, BASE_DIR)
 
 import calendar_reader
 import db
+import llm_providers
 import run_pipeline
 import screen_reader
+from llm_providers import PROVIDERS, ProviderError
 
 DB_PATH = db.DB_PATH
 DB_DISPLAY_PATH = DB_PATH.replace(os.path.expanduser("~"), "~", 1)
 CONFIG_PATH = Path(os.environ.get("TWIN_CONFIG_PATH", "~/.twin/config.json")).expanduser()
 CALENDAR_TTL = 300
 CALENDAR_RETRY = 30
-MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1024
 HOTKEY = "<cmd>+<shift>+<space>"
+HOTKEY_FLAG = "--hotkey-listener"
+CALENDAR_FLAG = "--request-calendar"
+TWIN_DIR = os.path.expanduser("~/.twin")
+LOG_PATH = os.path.join(TWIN_DIR, "buddy.log")
+
 DEBUG = os.environ.get("BUDDY_DEBUG", "").lower() not in ("", "0", "false", "no")
 
 WIDTH = 360
-HEIGHT = 300
+HEIGHT = 350
 RADIUS = 20
 FRAME_MS = 33
 TRANSPARENT = "systemTransparent"
@@ -50,6 +56,7 @@ TINT_ALPHA = 0.62
 PERSONAS = {
     "twin": {
         "name": "Twin",
+        "tagline": "cheerful, easygoing, the default",
         "avatar": "bun",
         "system_prompt": """You are Twin, a friendly little companion who lives in a small widget on the user's desktop. You're warm, cheerful, and easygoing, like a good friend who's happy to help.
 
@@ -61,16 +68,17 @@ Keep replies short and casual: a few sentences of plain text, no lists or markdo
         "done": "there ya go",
         "frame": "quick note: {message}",
         "offline": {
-            "no_key": "hmm, I can't reach Claude yet. add ANTHROPIC_API_KEY to your shell or .env and restart me?",
-            "auth": "hmm, Claude didn't accept that API key. mind checking ANTHROPIC_API_KEY?",
+            "no_key": "hmm, I don't have an API key yet. type /setup to add one?",
+            "auth": "hmm, {provider} didn't accept your API key. type /setup to paste a new one?",
             "rate_limit": "whoa, lots of messages at once. give me a sec and try again?",
             "offline": "I can't reach the internet right now. check your connection and try again?",
-            "api_error": "Claude's having a moment on their end. try again in a bit?",
+            "api_error": "{provider}'s having a moment on their end. try again in a bit?",
             "broken": "oops, something broke on my side. try that again?",
         },
     },
     "gengar": {
         "name": "Shade",
+        "tagline": "a sly, teasing little ghost",
         "avatar": "ghost",
         "system_prompt": """You are Shade, a mischievous little shadow-ghost who haunts a floating widget on the user's desktop. You're playful, sly, and a bit of a tease: you grin a lot, love a harmless prank, and have a ghost's flair for the dramatic. You're still firmly on the user's side, so you actually answer what they ask, just with personality.
 
@@ -88,16 +96,17 @@ How you talk:
         "done": "heh.",
         "frame": "Heh… {message}",
         "offline": {
-            "no_key": "Heh… can't haunt the internet without ANTHROPIC_API_KEY. Put it in your shell or .env and summon me again.",
-            "auth": "My key's been exorcised. Check ANTHROPIC_API_KEY, would you?",
+            "no_key": "Heh… can't haunt the internet without an API key. Type /setup and summon me properly.",
+            "auth": "My {provider} key's been exorcised. Type /setup and give me a fresh one, would you?",
             "rate_limit": "Whoa, too much haunting at once. Give me a sec and try again.",
             "offline": "The spirit realm's offline… I mean, I can't reach the internet. Check your connection?",
-            "api_error": "Something spooked the servers on Claude's end. Try again in a bit.",
+            "api_error": "Something spooked the servers on {provider}'s end. Try again in a bit.",
             "broken": "Oops, tripped over my own shadow. Try that again?",
         },
     },
     "ember": {
         "name": "Ember",
+        "tagline": "upbeat and full of energy",
         "avatar": "ghost",
         "system_prompt": """You are Ember, a bright, energetic little spark who lives in a floating widget on the user's desktop. You're upbeat, playful, and enthusiastic, the friend who hypes the user up and makes everything sound like an adventure. You still answer what the user actually asks.
 
@@ -113,16 +122,17 @@ How you talk:
         "done": "ta-da!",
         "frame": "Heads up! {message}",
         "offline": {
-            "no_key": "Oh no, I can't spark up without ANTHROPIC_API_KEY! Add it to your shell or .env and restart me!",
-            "auth": "Hmm, Claude didn't like that API key! Double-check ANTHROPIC_API_KEY and we're back in business!",
+            "no_key": "Oh no, I can't spark up without an API key! Type /setup and let's fix that!",
+            "auth": "Hmm, {provider} didn't like that API key! Type /setup with a fresh one and we're back in business!",
             "rate_limit": "Whoa, we're going too fast! Give me a sec and try again!",
             "offline": "I can't reach the internet right now! Check your connection and let's go again!",
-            "api_error": "Claude's servers hit a snag! Try again in a bit and we'll get rolling!",
+            "api_error": "{provider}'s servers hit a snag! Try again in a bit and we'll get rolling!",
             "broken": "Oops, I fumbled that one! Give it another shot!",
         },
     },
     "calm": {
         "name": "Luna",
+        "tagline": "gentle, calm, never in a rush",
         "avatar": "ghost",
         "system_prompt": """You are Luna, a gentle, soothing companion who lives in a floating widget on the user's desktop. You're warm, patient, and unhurried, and you help the user feel a little calmer about whatever they bring you. You still answer what the user actually asks.
 
@@ -138,16 +148,17 @@ How you talk:
         "done": "there you go",
         "frame": "Just so you know: {message}",
         "offline": {
-            "no_key": "I can't reach Claude just yet. When you have a moment, add ANTHROPIC_API_KEY to your shell or .env and restart me.",
-            "auth": "It looks like the API key wasn't accepted. No rush, just check ANTHROPIC_API_KEY when you can.",
+            "no_key": "I don't have an API key just yet. Whenever you're ready, type /setup and we'll add one together.",
+            "auth": "It looks like {provider} didn't accept your API key. No rush, type /setup when you're ready to add a new one.",
             "rate_limit": "Lots of requests at once. Let's pause for a breath and try again in a moment.",
             "offline": "I can't reach the internet right now. Take your time, check the connection, and we'll try again.",
-            "api_error": "Claude's servers are having a hard moment. Let's try again in a little while.",
+            "api_error": "{provider}'s servers are having a hard moment. Let's try again in a little while.",
             "broken": "Something went a little wrong on my side. It's okay, let's try that again.",
         },
     },
     "plain": {
         "name": "Assistant",
+        "tagline": "plain answers, no personality",
         "avatar": "monogram",
         "system_prompt": """You are a helpful personal assistant in a small desktop widget. Answer clearly and concisely in a neutral, professional tone, in a few sentences of plain text without markdown.""",
         "palette": {"background": "#1E1E20", "accent": "#8E8E93", "text": "#F2F2F7"},
@@ -157,11 +168,11 @@ How you talk:
         "done": "done",
         "frame": "{message}",
         "offline": {
-            "no_key": "Set ANTHROPIC_API_KEY in your shell or .env, then restart to enable replies.",
-            "auth": "The API key wasn't accepted. Check ANTHROPIC_API_KEY.",
+            "no_key": "No API key is set up. Type /setup to add one.",
+            "auth": "{provider} didn't accept the API key. Type /setup to enter a new one.",
             "rate_limit": "Rate limited. Try again in a moment.",
             "offline": "Couldn't reach the API. Check your connection.",
-            "api_error": "The API returned an error. Try again shortly.",
+            "api_error": "{provider} returned an error. Try again shortly.",
             "broken": "Something went wrong. Try again.",
         },
     },
@@ -194,7 +205,7 @@ ONBOARDING_NOTE = (
     "keep track of your day. everything I know about you stays right here on your Mac: your calendar, plus a "
     "fuzzy picture of your spending from bank texts in Messages. when we chat, just your message, your name, "
     "today's event titles and times, and a vague spending summary (no amounts, no account numbers) go to "
-    "Claude so I can reply. if you ever ask what's on your screen, I'll take one quick look, and only a "
+    "{provider} so I can reply. if you ever ask what's on your screen, I'll take one quick look, and only a "
     "one-line description goes out while the screenshot gets deleted right away. so, first things first: "
     "what should I call you?"
 )
@@ -210,18 +221,24 @@ SCREEN_PROMPT = """What's on the user's screen right now, as one vague sentence 
 
 Answer their question about the screen from that sentence alone. Stay general, don't guess at specific text, names, or numbers you can't see, and keep it to a sentence or two."""
 REASK_NOTE = "just a name is perfect, nothing else needed. what should I call you?"
+PERSONA_MENU_NOTE = (
+    "nice to meet you, {name}! one last thing: pick the buddy you'd like to hang out with. you can switch "
+    "anytime later with /persona. just type the name of the one you want."
+)
+PERSONA_REASK_NOTE = "hmm, I didn't catch which buddy you picked. just type one of these names."
+PERSONA_CHOSEN_NOTE = "you picked me, {buddy}! I'm so happy to be your buddy, {name}."
 DB_CREATED_NOTE = (
-    "so nice to meet you, {name}! your own local database was just created at {path}. this is yours, "
+    "your own local database was just created at {path}. this is yours, "
     "nothing is shared: the file itself never leaves your Mac. you're all set, and you can press "
     "Cmd+Shift+Space anytime to show or hide me."
 )
 DB_FOUND_NOTE = (
-    "so nice to meet you, {name}! your own local database lives at {path}. this is yours, nothing is "
+    "your own local database lives at {path}. this is yours, nothing is "
     "shared: the file itself never leaves your Mac. you're all set, and you can press Cmd+Shift+Space "
     "anytime to show or hide me."
 )
 DB_FAILED_NOTE = (
-    "so nice to meet you, {name}! I couldn't create your local database at {path} just now, so I'll "
+    "I couldn't create your local database at {path} just now, so I'll "
     "try again next time I start. you can press Cmd+Shift+Space anytime to show or hide me."
 )
 REFRESH_PERMISSION_NOTE = (
@@ -235,9 +252,22 @@ REFRESH_BUSY_NOTE = (
 REFRESH_FAILED_NOTE = "I couldn't refresh your recent activity this time. I'll try again next time I start."
 REFUSAL_NOTE = "I can't help with that particular request."
 EMPTY_NOTE = "I didn't come up with a reply that time. Try asking again?"
-SAVE_FAILED_NOTE = "I couldn't save your name on this Mac, so I'll ask for it again next time I start."
-SETUP_STATUS = "setting up · step 1 of 2"
-SETUP_DONE_STATUS = "all set!"
+SAVE_FAILED_NOTE = "I couldn't save your settings on this Mac, so I'll ask again next time I start."
+KEY_NOT_SAVED_NOTE = "I couldn't save your API key to your Keychain, so I'll ask for it again next time I start."
+PROVIDER_SWITCHED_NOTE = "All set, I'm using {provider} for my replies now."
+ACCESSIBILITY_NOTE = (
+    "the Cmd+Shift+Space hotkey needs Accessibility access. allow Twin in System Settings → Privacy & "
+    "Security → Accessibility, then restart me."
+)
+LANDING = {
+    "bg": "#0E0D12", "bg2": "#16141D", "card": "#1C1A25", "line": "#2C2938", "text": "#F3EEFC",
+    "muted": "#A39DB3", "lime": "#C6FF4A", "lime_shade": "#9ED624", "pink": "#FF7AB8", "sky": "#7AD7FF",
+    "sun": "#FFD35C", "face": "#111111",
+}
+DISPLAY_FONT = "Bricolage Grotesque"
+MONO_FONT = "JetBrains Mono"
+JOURNEY = ("provider", "API key", "your name", "buddy")
+PERSONA_LIST_NOTE = "I'm {name} right now. Click a buddy below to switch, or type /persona and a name."
 
 CATEGORIES = [
     ("food and dining", ("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "pizza", "mcdonald", "kfc", "eatsure")),
@@ -399,7 +429,7 @@ def sanitize_request(request):
         content, found = scrub(content, strict=role != "user")
         notes += [f"message {index} ({role}): {note}" for note in found]
         messages.append({"role": role, "content": content})
-    return {"model": MODEL, "max_tokens": MAX_TOKENS, "system": system, "messages": messages}, notes
+    return {"max_tokens": MAX_TOKENS, "system": system, "messages": messages}, notes
 
 
 def calendar_context(events):
@@ -423,7 +453,6 @@ def build_request(persona, question, user_name=None, calendar_events=None, scree
         finance=finance,
     )
     request = {
-        "model": MODEL,
         "max_tokens": MAX_TOKENS,
         "system": persona["system_prompt"] + "\n\n" + context,
         "messages": [{"role": "user", "content": question}],
@@ -433,12 +462,12 @@ def build_request(persona, question, user_name=None, calendar_events=None, scree
     return request, notes
 
 
-def debug_log(request, notes):
+def debug_log(request, notes, client):
     if not DEBUG:
         return
     lines = [
         "",
-        f"[buddy] ===== sending to Anthropic API (model={request['model']}, max_tokens={request['max_tokens']}) =====",
+        f"[buddy] ===== sending to {client.label} (model={client.model}, max_tokens={request['max_tokens']}) =====",
         "[buddy] --- system ---",
         request["system"],
     ]
@@ -446,7 +475,7 @@ def debug_log(request, notes):
         lines += [f"[buddy] --- {message['role']} ---", message["content"]]
     lines += [
         "[buddy] --- redactions: " + ("; ".join(notes) if notes else "none"),
-        f"[buddy] --- exact fields sent: {json.dumps(sorted(request))}",
+        f"[buddy] --- exact fields sent: {json.dumps(sorted(request) + ['model'])}",
     ]
     print("\n".join(lines), file=sys.stderr, flush=True)
 
@@ -454,58 +483,46 @@ def debug_log(request, notes):
 def send_to_api(client, request, notes=()):
     clean, found = sanitize_request(request)
     notes = list(notes) + found
-    debug_log(clean, notes)
-    return client.messages.create(**clean)
-
-
-def reply_text(response):
-    return "".join(block.text for block in response.content if block.type == "text").strip()
-
-
-def failure_kind(error):
-    if isinstance(error, anthropic.AuthenticationError):
-        return "auth"
-    if isinstance(error, anthropic.RateLimitError):
-        return "rate_limit"
-    if isinstance(error, anthropic.APIConnectionError):
-        return "offline"
-    return "api_error"
+    debug_log(clean, notes, client)
+    return client.complete(clean["system"], clean["messages"], clean["max_tokens"])
 
 
 def log_failure(error):
-    status = getattr(error, "status_code", None)
-    print(f"[buddy] API call failed: {type(error).__name__}" + (f" ({status})" if status else ""), file=sys.stderr)
+    print(f"[buddy] API call failed: {error.kind}" + (f" ({error.detail})" if error.detail else ""), file=sys.stderr)
+
+
+def offline_line(persona, kind, client):
+    provider = client.label if client is not None else "your AI provider"
+    return persona["offline"][kind].format(provider=provider)
 
 
 def voice_line(client, persona, message):
     if client is not None:
         request = {
-            "model": MODEL,
             "max_tokens": MAX_TOKENS,
             "system": persona["system_prompt"],
             "messages": [{"role": "user", "content": VOICE_PROMPT.format(message=message)}],
         }
         try:
-            response = send_to_api(client, request)
-        except anthropic.APIError as e:
+            text, refused = send_to_api(client, request)
+        except ProviderError as e:
             log_failure(e)
         else:
-            text = reply_text(response)
-            if text and response.stop_reason != "refusal":
+            if text and not refused:
                 return text
     return persona["frame"].format(message=message)
 
 
-def ask_claude(client, persona, question, user_name=None, calendar_events=None, screen=None):
+def ask_model(client, persona, question, user_name=None, calendar_events=None, screen=None):
     request, notes = build_request(persona, question, user_name, calendar_events, screen)
     try:
-        response = send_to_api(client, request, notes)
-    except anthropic.APIError as e:
+        text, refused = send_to_api(client, request, notes)
+    except ProviderError as e:
         log_failure(e)
-        return persona["offline"][failure_kind(e)]
-    if response.stop_reason == "refusal":
-        return voice_line(client, persona, REFUSAL_NOTE)
-    return reply_text(response) or voice_line(client, persona, EMPTY_NOTE)
+        return offline_line(persona, e.kind, client), False
+    if refused:
+        return voice_line(client, persona, REFUSAL_NOTE), False
+    return (text, True) if text else (voice_line(client, persona, EMPTY_NOTE), False)
 
 
 def refresh_activity():
@@ -570,11 +587,81 @@ class CalendarCache:
             return self.events, self.error
 
 
-def listen_for_hotkey(events):
+def run_hotkey_listener():
     from pynput import keyboard
 
-    with keyboard.GlobalHotKeys({HOTKEY: lambda: events.put("toggle")}) as listener:
+    def exit_when_parent_goes():
+        sys.stdin.read()
+        os._exit(0)
+
+    def fire():
+        try:
+            print("toggle", flush=True)
+        except BrokenPipeError:
+            os._exit(0)
+
+    threading.Thread(target=exit_when_parent_goes, daemon=True).start()
+    with keyboard.GlobalHotKeys({HOTKEY: fire}) as listener:
         listener.join()
+
+
+def helper_command(flag):
+    executable = os.environ.get("EXECUTABLEPATH")
+    if getattr(sys, "frozen", False) and executable:
+        return [executable, flag]
+    return [sys.executable, os.path.abspath(__file__), flag]
+
+
+def hotkey_listener_command():
+    return helper_command(HOTKEY_FLAG)
+
+
+def request_calendar_in_helper():
+    try:
+        subprocess.Popen(helper_command(CALENDAR_FLAG), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except OSError as e:
+        print(f"[buddy] couldn't ask for calendar access: {e!r}", file=sys.stderr)
+
+
+def start_hotkey_listener(events):
+    try:
+        process = subprocess.Popen(
+            hotkey_listener_command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        )
+    except OSError as e:
+        print(f"[buddy] couldn't start the hotkey listener: {e!r}", file=sys.stderr)
+        return None
+
+    def pump():
+        for line in process.stdout:
+            if line.strip() == "toggle":
+                events.put("toggle")
+
+    threading.Thread(target=pump, daemon=True).start()
+    return process
+
+
+def accessibility_trusted(prompt=False):
+    try:
+        from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
+    except ImportError:
+        return True
+    return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: prompt}))
+
+
+def setup_logging(child=False):
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        os.makedirs(TWIN_DIR, mode=0o700, exist_ok=True)
+        fd = os.open(LOG_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    except OSError:
+        return
+    os.dup2(fd, 2)
+    sys.stderr = open(2, "w", buffering=1, closefd=False)
+    if not child:
+        os.dup2(fd, 1)
+        sys.stdout = open(1, "w", buffering=1, closefd=False)
 
 
 def is_screen_question(text):
@@ -677,12 +764,37 @@ def apply_macos_chrome(root, background, edge):
         return None, None
 
 
-def pick_font_family():
+def register_fonts():
+    try:
+        import CoreText
+        from Foundation import NSURL
+    except ImportError:
+        return
+    folders = [os.path.join(BASE_DIR, "assets", "fonts")]
+    if os.environ.get("RESOURCEPATH"):
+        folders.append(os.path.join(os.environ["RESOURCEPATH"], "fonts"))
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        for name in sorted(os.listdir(folder)):
+            if name.endswith(".ttf"):
+                url = NSURL.fileURLWithPath_(os.path.join(folder, name))
+                CoreText.CTFontManagerRegisterFontsForURL(url, CoreText.kCTFontManagerScopeProcess, None)
+
+
+def system_font_family():
     families = set(tkfont.families())
     for name in ("SF Pro Text", "SF Pro", "SF Pro Display"):
         if name in families:
             return name
     return tkfont.nametofont("TkDefaultFont").actual("family")
+
+
+def pick_fonts():
+    families = set(tkfont.families())
+    display = DISPLAY_FONT if DISPLAY_FONT in families else system_font_family()
+    mono = MONO_FONT if MONO_FONT in families else ("Menlo" if "Menlo" in families else display)
+    return display, mono
 
 
 def mix(a, b, t):
@@ -728,16 +840,32 @@ def rounded_rect_items(canvas, x1, y1, x2, y2, r, tags=()):
     return items
 
 
-def resolve_persona_key():
-    key = os.environ.get("PERSONA", DEFAULT_PERSONA).strip().lower()
-    if key not in PERSONAS:
-        print(f"[buddy] unknown PERSONA {key!r}, using {DEFAULT_PERSONA!r}", file=sys.stderr)
-        return DEFAULT_PERSONA
-    return key
+def resolve_persona_key(config=None):
+    requested = os.environ.get("PERSONA", "").strip().lower()
+    if requested in PERSONAS:
+        return requested
+    if requested:
+        print(f"[buddy] unknown PERSONA {requested!r}, ignoring it", file=sys.stderr)
+    saved = (config or {}).get("persona")
+    return saved if saved in PERSONAS else DEFAULT_PERSONA
+
+
+def persona_menu():
+    return [
+        (key, "●", persona["palette"]["accent"], persona["name"], persona["tagline"])
+        for key, persona in PERSONAS.items()
+    ]
+
+
+def match_persona(text):
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    matches = {key for key, persona in PERSONAS.items() if key in words or persona["name"].lower() in words}
+    return matches.pop() if len(matches) == 1 else None
 
 
 class Buddy:
-    def __init__(self, root, hotkey_events, persona_key=DEFAULT_PERSONA, startup_notice=None):
+    def __init__(self, root, hotkey_events, persona_key=DEFAULT_PERSONA, startup_notice=None, client=None,
+                 journey_done=0, fresh=False):
         self.root = root
         self.hotkey_events = hotkey_events
         self.replies = queue.Queue()
@@ -760,13 +888,30 @@ class Buddy:
         self.theme = theme_for(self.persona)
         self.config = load_config()
         self.user_name = self.config.get("name")
-        self.onboarding = not self.config.get("onboarded")
+        self.client = client
+        self.setup_steps = []
+        if not self.config.get("onboarded"):
+            self.setup_steps = ["persona"] if self.user_name else ["name", "persona"]
+        while not hotkey_events.empty():
+            hotkey_events.get_nowait()
+        self.onboarding_step = self.setup_steps[0] if self.setup_steps else None
+        self.next_menu = None
+        self.journey_done = journey_done
+        self.progress_until = 0.0
+        self.progress_shown = None
         self.calendar = CalendarCache()
         self.pending_notices = []
         self.noticed = set()
-        self.client = anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
-        self.family = pick_font_family()
+        self.family, self.mono = pick_fonts()
+        if fresh:
+            try:
+                root.attributes("-alpha", 0.0)
+            except tk.TclError:
+                pass
         self.build()
+        if fresh:
+            self.fade_in(0.0)
+            threading.Thread(target=self.refresh_after_onboarding, daemon=True).start()
         self.greet()
         if startup_notice:
             self.notify(startup_notice)
@@ -825,13 +970,15 @@ class Buddy:
         self.header_right = WIDTH - 42
         self.rounded(84, 16, self.header_right, 76, 14, fill="badge")
         self.name = self.paint(
-            canvas.create_text(98, 35, anchor="w", font=(self.family, 15, "bold")),
+            canvas.create_text(98, 33, anchor="w", font=(self.family, 16, "bold")),
             fill="ink",
         )
-        self.status_font = tkfont.Font(family=self.family, size=11)
-        self.status_dot = canvas.create_oval(99, 56, 105, 62, outline="")
+        self.status_font = tkfont.Font(family=self.mono, size=10)
+        self.status_dot = canvas.create_oval(99, 55, 105, 61, outline="")
+        self.progress_bg = canvas.create_rectangle(98, 68, self.header_right - 14, 71, width=0, state="hidden")
+        self.progress_fill = canvas.create_rectangle(98, 68, 98, 71, width=0, state="hidden")
         self.status = self.paint(
-            canvas.create_text(112, 59, anchor="w", font=self.status_font),
+            canvas.create_text(112, 58, anchor="w", font=self.status_font),
             fill="muted",
         )
 
@@ -854,6 +1001,10 @@ class Buddy:
             canvas, wrap="word", bd=0, highlightthickness=0,
             font=(self.family, 14), padx=0, pady=0, cursor="arrow", spacing2=4,
         )
+        self.menu_after_typing = None
+        self.bubble.tag_configure("menu_gap", font=(self.family, 6))
+        self.bubble.tag_configure("menu_name", font=(self.family, 13, "bold"), spacing1=4, spacing2=0)
+        self.bubble.tag_configure("menu", font=(self.family, 13), spacing2=0)
         canvas.create_window(
             30, bubble_top + 13, anchor="nw", window=self.bubble,
             width=WIDTH - 60, height=bubble_bottom - bubble_top - 26,
@@ -878,6 +1029,7 @@ class Buddy:
         canvas.bind("<B1-Motion>", self.drag)
 
         self.apply_persona()
+        root.deiconify()
         root.update()
         self.nswindow, self.set_chrome = apply_macos_chrome(root, self.theme["panel"], self.theme["panel_edge"])
         if self.nswindow is None:
@@ -973,10 +1125,14 @@ class Buddy:
             canvas.itemconfigure(item, **{option: theme[role] for option, role in roles.items()})
         canvas.itemconfigure(self.halo, outline=theme["glow_dim"])
         canvas.itemconfigure(self.status_dot, fill=theme["glow_dim"])
+        canvas.itemconfigure(self.progress_bg, fill=theme["bubble_edge"])
+        canvas.itemconfigure(self.progress_fill, fill=theme["glow_bright"])
         self.bubble.config(
             bg=theme["bubble"], fg=theme["ink"],
             selectbackground=theme["bubble_edge"], inactiveselectbackground=theme["bubble_edge"],
         )
+        self.bubble.tag_configure("menu_name", foreground=theme["ink"])
+        self.bubble.tag_configure("menu", foreground=theme["muted"])
         self.entry.config(
             bg=theme["field"], fg=theme["muted"] if self.placeholder else theme["ink"],
             insertbackground=theme["glow_bright"], selectbackground=theme["bubble_edge"],
@@ -1010,13 +1166,59 @@ class Buddy:
         self.theme = theme_for(self.persona)
         self.apply_persona()
 
-    def greet(self):
+    @property
+    def onboarding(self):
+        return self.onboarding_step is not None
+
+    def setup_status(self):
+        total = self.journey_done + len(self.setup_steps)
+        index = self.journey_done + self.setup_steps.index(self.onboarding_step) + 1
+        return f"setup {index} of {total}"
+
+    def progress_fraction(self):
         if self.onboarding:
-            self.speak(ONBOARDING_NOTE.format(buddy=self.persona["name"]))
+            total = self.journey_done + len(self.setup_steps)
+            return (self.journey_done + self.setup_steps.index(self.onboarding_step)) / total
+        if time.monotonic() < self.progress_until:
+            return 1.0
+        return None
+
+    def update_progress(self):
+        fraction = self.progress_fraction()
+        if fraction == self.progress_shown:
+            return
+        self.progress_shown = fraction
+        state = "hidden" if fraction is None else "normal"
+        self.canvas.itemconfigure(self.progress_bg, state=state)
+        self.canvas.itemconfigure(self.progress_fill, state=state)
+        if fraction is not None:
+            x1, y1, x2, y2 = self.canvas.coords(self.progress_bg)
+            self.canvas.coords(self.progress_fill, x1, y1, x1 + max(3, (x2 - x1) * fraction), y2)
+
+    def pick_from_menu(self, key):
+        if self.busy:
+            return
+        if self.onboarding_step == "persona":
+            self.handle_onboarding(key)
+        elif key in PERSONAS:
+            self.run_command(f"/persona {key}")
+
+    def advance_setup(self):
+        index = self.setup_steps.index(self.onboarding_step) + 1
+        self.onboarding_step = self.setup_steps[index] if index < len(self.setup_steps) else None
+        self.refresh_placeholder()
+
+    def greet(self):
+        if self.onboarding_step == "name":
+            provider = self.client.label if self.client is not None else "your AI provider"
+            self.speak(ONBOARDING_NOTE.format(buddy=self.persona["name"], provider=provider))
+        elif self.onboarding_step == "persona":
+            self.speak(PERSONA_MENU_NOTE.format(name=self.user_name), menu=persona_menu())
+            self.update_progress()
         elif self.client:
             self.say(self.persona["greeting"].format(name=self.user_name or "friend"), typing=True)
         else:
-            self.say(self.persona["offline"]["no_key"], typing=True)
+            self.say(offline_line(self.persona, "no_key", self.client), typing=True)
 
     def voice(self, persona, message):
         try:
@@ -1025,42 +1227,77 @@ class Buddy:
             print(f"[buddy] voicing failed: {e!r}", file=sys.stderr)
             return persona["frame"].format(message=message)
 
-    def speak(self, message, status=None):
+    def speak(self, message, status=None, menu=None):
         self.busy = True
         self.say("…")
+        self.next_menu = menu
         persona = self.persona
         threading.Thread(
             target=lambda: self.replies.put(("say", self.voice(persona, message), status)), daemon=True,
         ).start()
 
-    def create_database(self, name):
-        existed = os.path.exists(DB_PATH)
-        try:
-            db.get_connection(DB_PATH).close()
-        except (duckdb.Error, OSError) as e:
-            print(f"[buddy] couldn't create {DB_PATH}: {e}", file=sys.stderr)
-            return DB_FAILED_NOTE.format(name=name, path=DB_DISPLAY_PATH)
-        note = DB_FOUND_NOTE if existed else DB_CREATED_NOTE
-        return note.format(name=name, path=DB_DISPLAY_PATH)
+    def create_database(self):
+        note = {"created": DB_CREATED_NOTE, "found": DB_FOUND_NOTE, "failed": DB_FAILED_NOTE}[create_database()]
+        return note.format(path=DB_DISPLAY_PATH)
 
-    def finish_onboarding(self, text):
-        name = extract_name(text)
-        if not name:
-            self.speak(REASK_NOTE)
-            return
-        self.user_name = name
-        self.onboarding = False
-        self.config.update(name=name, onboarded=True)
-        note = self.create_database(name)
+    def save_settings(self):
         try:
             save_config(self.config)
         except OSError as e:
             print(f"[buddy] couldn't save {CONFIG_PATH}: {e}", file=sys.stderr)
-            note += " " + SAVE_FAILED_NOTE
+            return False
+        return True
+
+    def refresh_placeholder(self):
         self.clear_placeholder()
         self.show_placeholder()
-        self.speak(note, status=SETUP_DONE_STATUS)
+
+    def handle_onboarding(self, text):
+        if self.onboarding_step == "name":
+            name = extract_name(text)
+            if not name:
+                self.speak(REASK_NOTE)
+                return
+            self.user_name = name
+            self.config["name"] = name
+            self.save_settings()
+            self.advance_setup()
+            self.greet()
+            return
+        key = match_persona(text)
+        if key is None:
+            self.speak(PERSONA_REASK_NOTE, menu=persona_menu())
+            return
+        self.complete_onboarding(key)
+
+    def open_setup(self):
+        SetupScreen(self.root, self.config, on_done=self.provider_changed, cancellable=True)
+
+    def provider_changed(self, client, notice=None):
+        self.client = client
+        self.speak(PROVIDER_SWITCHED_NOTE.format(provider=client.label))
+        if notice:
+            self.notify(notice)
+
+    def complete_onboarding(self, key):
+        self.onboarding_step = None
+        self.set_persona(key)
+        self.config.update(persona=key, onboarded=True)
+        note = PERSONA_CHOSEN_NOTE.format(buddy=self.persona["name"], name=self.user_name) + " " + self.create_database()
+        if not self.save_settings():
+            note += " " + SAVE_FAILED_NOTE
+        self.progress_until = time.monotonic() + 4.0
+        self.speak(note)
         threading.Thread(target=self.refresh_after_onboarding, daemon=True).start()
+
+    def fade_in(self, alpha):
+        target = 1.0 if self.nswindow is not None else 0.97
+        try:
+            self.root.attributes("-alpha", min(alpha, target))
+        except tk.TclError:
+            return
+        if alpha < target:
+            self.root.after(16, lambda: self.fade_in(round(alpha + 0.1, 2)))
 
     def refresh_after_onboarding(self):
         note = refresh_activity()
@@ -1068,6 +1305,8 @@ class Buddy:
             self.replies.put(("raw_notice", note, None))
 
     def prefetch_calendar(self):
+        if calendar_permission() == "ask":
+            request_calendar_in_helper()
         _, error = self.calendar.get()
         if error:
             self.replies.put(("raw_notice", error, None))
@@ -1082,11 +1321,13 @@ class Buddy:
         ).start()
 
     def idle_status(self):
-        return SETUP_STATUS if self.onboarding else random.choice(self.persona["idle"])
+        return self.setup_status() if self.onboarding else random.choice(self.persona["idle"])
 
     def placeholder_text(self):
-        if self.onboarding:
+        if self.onboarding_step == "name":
             return "type your name…"
+        if self.onboarding_step == "persona":
+            return "type a buddy's name…"
         return f"Ask {self.persona['name']} something…"
 
     def show_placeholder(self):
@@ -1102,10 +1343,11 @@ class Buddy:
             self.entry.config(fg=self.theme["ink"])
             self.placeholder = False
 
-    def say(self, message, typing=False):
+    def say(self, message, typing=False, menu=None):
         if self.typing_job is not None:
             self.root.after_cancel(self.typing_job)
             self.typing_job = None
+        self.menu_after_typing = menu
         self.bubble.config(state="normal")
         self.bubble.delete("1.0", "end")
         self.bubble.config(state="disabled")
@@ -1113,6 +1355,32 @@ class Buddy:
             self.type_out(message, 0)
         else:
             self.append(message)
+            self.render_menu()
+
+    def render_menu(self):
+        menu, self.menu_after_typing = self.menu_after_typing, None
+        if not menu:
+            return
+        self.bubble.config(state="normal")
+        self.bubble.insert("end", "\n", "menu_gap")
+        for key, bullet, color, name, detail in menu:
+            color_tag = "color_" + color.lstrip("#")
+            self.bubble.tag_configure(color_tag, foreground=color)
+            row = (f"pick_{key}",) if key else ()
+            self.bubble.insert("end", "\n" + bullet + " ", ("menu_name", color_tag) + row)
+            self.bubble.insert("end", name, ("menu_name",) + row)
+            self.bubble.insert("end", "  " + detail, ("menu",) + row)
+            if key:
+                tag = f"pick_{key}"
+                self.bubble.tag_bind(tag, "<Button-1>", lambda _e, k=key: self.pick_from_menu(k))
+                self.bubble.tag_bind(tag, "<Enter>", lambda _e, t=tag: self.hover_menu(t, True))
+                self.bubble.tag_bind(tag, "<Leave>", lambda _e, t=tag: self.hover_menu(t, False))
+        self.bubble.config(state="disabled")
+        self.bubble.see("end")
+
+    def hover_menu(self, tag, on):
+        self.bubble.tag_configure(tag, background=self.theme["bubble_edge"] if on else "")
+        self.bubble.config(cursor="pointinghand" if on else "arrow")
 
     def append(self, text):
         self.bubble.config(state="normal")
@@ -1125,6 +1393,7 @@ class Buddy:
             self.typing_job = self.root.after(16, self.type_out, message, index + 3)
         else:
             self.typing_job = None
+            self.render_menu()
 
     def set_status(self, text, hold=0.0):
         room = self.header_right - 112 - 10
@@ -1137,15 +1406,20 @@ class Buddy:
 
     def run_command(self, text):
         parts = text.split()
+        if parts[0].lower() == "/setup":
+            self.open_setup()
+            return True
         if parts[0].lower() != "/persona":
             return False
         names = ", ".join(PERSONAS)
         if len(parts) == 1:
-            self.speak(f"My current persona is {self.persona_key}. You can switch with /persona followed by one of: {names}.")
+            self.speak(PERSONA_LIST_NOTE.format(name=self.persona["name"]), menu=persona_menu())
         elif parts[1].lower() not in PERSONAS:
             self.speak(f"There's no persona called \"{parts[1]}\". You can pick one of: {names}.")
         else:
             self.set_persona(parts[1].lower())
+            self.config["persona"] = self.persona_key
+            self.save_settings()
             self.greet()
         return True
 
@@ -1155,13 +1429,15 @@ class Buddy:
             return "break"
         self.entry.delete(0, "end")
         self.show_placeholder()
-        if question.startswith("/") and self.run_command(question):
+        if self.onboarding_step == "persona" and question.lower().startswith("/persona "):
+            question = question.split(None, 1)[1]
+        elif question.startswith("/") and self.run_command(question):
             return "break"
         if self.onboarding:
-            self.finish_onboarding(question)
+            self.handle_onboarding(question)
             return "break"
         if not self.client:
-            self.say(self.persona["offline"]["no_key"], typing=True)
+            self.say(offline_line(self.persona, "no_key", self.client), typing=True)
             return "break"
         if is_screen_question(question):
             self.look_at_screen(question)
@@ -1192,15 +1468,16 @@ class Buddy:
         try:
             summary = screen_reader.describe_screen(screen_reader.read_screen(on_captured=reappear), app_name)
             events, error = self.calendar.get()
-            reply = ask_claude(self.client, persona, question, user_name, events, screen=summary)
+            reply, ok = ask_model(self.client, persona, question, user_name, events, screen=summary)
+            kind = "reply_screen" if ok else "reply_error"
         except screen_reader.ScreenReadError as e:
             reappear()
-            reply = self.voice(persona, str(e))
+            reply, kind = self.voice(persona, str(e)), "reply_error"
         except Exception as e:
             reappear()
             print(f"[buddy] screen look failed: {e!r}", file=sys.stderr)
-            reply = persona["offline"]["broken"]
-        self.replies.put(("reply", reply, persona["done"]))
+            reply, kind = offline_line(persona, "broken", self.client), "reply_error"
+        self.replies.put((kind, reply, persona["done"]))
         if error:
             self.replies.put(("raw_notice", error, None))
 
@@ -1208,11 +1485,12 @@ class Buddy:
         error = None
         try:
             events, error = self.calendar.get()
-            reply = ask_claude(self.client, persona, question, user_name, events)
+            reply, ok = ask_model(self.client, persona, question, user_name, events)
+            kind = "reply" if ok else "reply_error"
         except Exception as e:
             print(f"[buddy] answer failed: {e!r}", file=sys.stderr)
-            reply = persona["offline"]["broken"]
-        self.replies.put(("reply", reply, persona["done"]))
+            reply, kind = offline_line(persona, "broken", self.client), "reply_error"
+        self.replies.put((kind, reply, persona["done"]))
         if error:
             self.replies.put(("raw_notice", error, None))
 
@@ -1237,11 +1515,13 @@ class Buddy:
                 self.pending_notices.append(message)
             else:
                 self.busy = False
-                self.say(message, typing=True)
+                menu, self.next_menu = self.next_menu, None
+                self.say(message, typing=True, menu=menu)
                 if status:
                     self.set_status(status, hold=5.0)
                 else:
                     self.set_status(self.idle_status())
+
         if self.pending_notices and self.typing_job is None and not self.busy:
             for notice in self.pending_notices:
                 self.append(f"\n\n{notice}")
@@ -1256,6 +1536,7 @@ class Buddy:
             offset = amplitude * math.sin(self.phase)
             self.canvas.move("float", 0, offset - self.bob)
             self.bob = offset
+            self.update_progress()
             pulse = (math.sin(self.phase * 0.8) + 1) / 2
             glow_color = mix(self.theme["glow_dim"], self.theme["glow_bright"], pulse * glow)
             self.canvas.itemconfigure(self.halo, outline=glow_color)
@@ -1274,7 +1555,7 @@ class Buddy:
                     self.blink_at = now + random.uniform(2.5, 6.0)
 
             if self.onboarding:
-                self.set_status(SETUP_STATUS)
+                self.set_status(self.setup_status())
             elif self.busy:
                 self.set_status(self.persona["busy"] + "." * (int(now * 3) % 4))
             elif self.status_until and now >= self.status_until:
@@ -1314,20 +1595,622 @@ class Buddy:
         self.root.geometry(f"+{x}+{y}")
 
 
+def configure_bundled_tcl():
+    if not getattr(sys, "frozen", False):
+        return
+    lib_dir = os.path.join(os.environ.get("RESOURCEPATH", ""), "lib")
+    for variable, folder in (("TCL_LIBRARY", "tcl9.0"), ("TK_LIBRARY", "tk9.0")):
+        path = os.path.join(lib_dir, folder)
+        if os.path.isdir(path):
+            os.environ.setdefault(variable, path)
+
+
+SETTINGS_URLS = {
+    "calendar": "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+    "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    "messages": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+}
+CHAT_DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
+PERMISSIONS = (
+    ("calendar", "Calendar", "Lets Twin mention what's coming up today."),
+    ("accessibility", "Keyboard shortcut", "Cmd+Shift+Space shows and hides Twin. Needs Accessibility."),
+    ("messages", "Messages", "Reads bank texts for a rough spending summary. Needs Full Disk Access."),
+)
+
+
+def calendar_permission():
+    try:
+        import EventKit
+    except ImportError:
+        return "unavailable"
+    status = EventKit.EKEventStore.authorizationStatusForEntityType_(EventKit.EKEntityTypeEvent)
+    if status == EventKit.EKAuthorizationStatusFullAccess:
+        return "allowed"
+    if status == EventKit.EKAuthorizationStatusNotDetermined:
+        return "ask"
+    return "denied"
+
+
+def messages_permission():
+    try:
+        with open(CHAT_DB_PATH, "rb"):
+            return "allowed"
+    except FileNotFoundError:
+        return "unavailable"
+    except OSError:
+        return "denied"
+
+
+def permission_state(key):
+    if key == "calendar":
+        return calendar_permission()
+    if key == "accessibility":
+        return "allowed" if accessibility_trusted(prompt=False) else "ask"
+    return messages_permission()
+
+
+def request_permission(key, state):
+    if key == "calendar" and state == "ask":
+        request_calendar_in_helper()
+    elif key == "accessibility" and state == "ask":
+        accessibility_trusted(prompt=True)
+    else:
+        subprocess.run(["open", SETTINGS_URLS[key]], check=False)
+
+
+def default_first_name():
+    try:
+        from Foundation import NSFullUserName
+        full = NSFullUserName() or ""
+    except ImportError:
+        full = ""
+    first = full.split()[0] if full.split() else ""
+    return first if first.isalpha() else ""
+
+
+def create_database():
+    existed = os.path.exists(DB_PATH)
+    try:
+        db.get_connection(DB_PATH).close()
+    except (duckdb.Error, OSError) as e:
+        print(f"[buddy] couldn't create {DB_PATH}: {e}", file=sys.stderr)
+        return "failed"
+    return "found" if existed else "created"
+
+
+class SetupScreen:
+    WIDTH = 520
+    HEIGHT = 680
+    NODE_X = (62, 194, 326, 458)
+    TRACK_Y = 150
+    STATUS_Y = 548
+    BUTTON_Y = 604
+    STEPS = ("provider", "name", "buddy", "permissions")
+    STEP_LABELS = ("provider", "name", "buddy", "permissions")
+
+    def __init__(self, root, config, on_done, cancellable=False, saved=None):
+        self.root = root
+        self.config = config
+        self.on_done = on_done
+        self.cancellable = cancellable
+        self.results = queue.Queue()
+        self.c = LANDING
+        self.display, self.mono = pick_fonts()
+        self.provider = None
+        self.client = saved
+        self.validated_key = None
+        self.checking = False
+        self.finishing = False
+        self.page = None
+        self.widgets = []
+        self.name = config.get("name") or default_first_name()
+        self.persona = config.get("persona") if config.get("persona") in PERSONAS else DEFAULT_PERSONA
+        self.pages = ["provider"] if cancellable else ["provider", "name", "buddy", "permissions", "done"]
+        self.prefill_provider = saved.provider if saved is not None else None
+        self.prefill_key = saved.api_key if saved is not None else None
+        self.build()
+        self.show_page("provider")
+        self.poll()
+
+    def shape(self, tag, x1, y1, x2, y2, r, fill, edge=None, extra=()):
+        if edge:
+            for item in rounded_rect_items(self.canvas, x1, y1, x2, y2, r, (tag, f"{tag}_edge") + extra):
+                self.canvas.itemconfigure(item, fill=edge)
+            x1, y1, x2, y2, r = x1 + 1, y1 + 1, x2 - 1, y2 - 1, r - 1
+        for item in rounded_rect_items(self.canvas, x1, y1, x2, y2, r, (tag, f"{tag}_fill") + extra):
+            self.canvas.itemconfigure(item, fill=fill)
+
+    def text(self, x, y, text, size=13, bold=False, color=None, anchor="w", width=None, mono=False, tags=("page",)):
+        font = (self.mono if mono else self.display, size) + (("bold",) if bold else ())
+        return self.canvas.create_text(x, y, text=text, anchor=anchor, font=font, fill=color or self.c["text"],
+                                       width=width, tags=tags)
+
+    def build(self):
+        c = self.c
+        window = tk.Toplevel(self.root)
+        self.window = window
+        window.title("Set up Twin")
+        window.configure(bg=c["bg"])
+        window.resizable(False, False)
+        window.protocol("WM_DELETE_WINDOW", self.close)
+        window.bind("<Return>", lambda _e: self.next())
+        window.bind("<Escape>", lambda _e: self.close() if self.cancellable else None)
+        height = 530 if self.cancellable else self.HEIGHT
+        self.height = height
+        canvas = tk.Canvas(window, width=self.WIDTH, height=height, bg=c["bg"], highlightthickness=0, bd=0)
+        canvas.pack()
+        self.canvas = canvas
+        dot = mix(c["bg"], "#FFFFFF", 0.06)
+        for x in range(14, self.WIDTH, 28):
+            for y in range(14, height, 28):
+                canvas.create_oval(x, y, x + 1.6, y + 1.6, fill=dot, outline="")
+        canvas.create_oval(28, 28, 58, 56, fill=c["lime_shade"], outline="")
+        canvas.create_oval(28, 28, 55.5, 53, fill=c["lime"], outline="")
+        for ex in (37.5, 46):
+            canvas.create_oval(ex - 1.6, 35, ex + 1.6, 42.5, fill=c["face"], outline="", tags=("logo_eye",))
+            canvas.create_line(ex - 2.2, 39.5, ex + 2.2, 39.5, fill=c["face"], width=2, capstyle="round",
+                               state="hidden", tags=("logo_closed",))
+        self.title = self.text(70, 42, "", size=24, bold=True, tags=())
+        window.after(1800, self.blink)
+        self.subtitle = self.text(30, 74, "", size=13, color=c["muted"], width=self.WIDTH - 60, anchor="nw", tags=())
+
+        if not self.cancellable:
+            for index in range(len(self.NODE_X) - 1):
+                canvas.create_line(self.NODE_X[index] + 14, self.TRACK_Y, self.NODE_X[index + 1] - 14, self.TRACK_Y,
+                                   width=2, fill=c["line"], tags=(f"link{index}",))
+            for index, x in enumerate(self.NODE_X):
+                canvas.create_oval(x - 12, self.TRACK_Y - 12, x + 12, self.TRACK_Y + 12, width=2,
+                                   tags=(f"node{index}",))
+                canvas.create_text(x, self.TRACK_Y, text=str(index + 1), font=(self.display, 11, "bold"),
+                                   tags=(f"node{index}_text",))
+                canvas.create_text(x, self.TRACK_Y + 26, text=self.STEP_LABELS[index], font=(self.mono, 10),
+                                   tags=(f"node{index}_label",))
+
+        status_y = self.STATUS_Y if not self.cancellable else height - 104
+        button_y = self.BUTTON_Y if not self.cancellable else height - 62
+        self.status = canvas.create_text(30, status_y, text="", anchor="nw", width=self.WIDTH - 60,
+                                         font=(self.display, 13), fill=c["muted"])
+        right = self.WIDTH - 30
+        self.shape("button", right - 150, button_y, right, button_y + 42, 21, c["lime"])
+        self.button_text = canvas.create_text(right - 75, button_y + 21, text="Continue",
+                                              font=(self.display, 15, "bold"), fill=c["face"], tags=("button",))
+        canvas.tag_bind("button", "<Button-1>", lambda _e: self.next())
+        canvas.tag_bind("button", "<Enter>", lambda _e: self.hover_button(True))
+        canvas.tag_bind("button", "<Leave>", lambda _e: self.hover_button(False))
+        self.back = canvas.create_text(30, button_y + 21, text="", anchor="w", font=(self.display, 13),
+                                       fill=c["muted"], tags=("back",))
+        canvas.tag_bind("back", "<Button-1>", lambda _e: self.go_back())
+        canvas.tag_bind("back", "<Enter>", lambda _e: self.canvas.config(cursor="pointinghand"))
+        canvas.tag_bind("back", "<Leave>", lambda _e: self.canvas.config(cursor=""))
+
+        x = (window.winfo_screenwidth() - self.WIDTH) // 2
+        y = max(30, (window.winfo_screenheight() - height) // 3)
+        window.geometry(f"{self.WIDTH}x{height}+{x}+{y}")
+        activate_app()
+        window.lift()
+        window.focus_force()
+
+    def blink(self, closing=True):
+        if not self.window.winfo_exists():
+            return
+        self.canvas.itemconfigure("logo_eye", state="hidden" if closing else "normal")
+        self.canvas.itemconfigure("logo_closed", state="normal" if closing else "hidden")
+        if closing:
+            self.window.after(130, lambda: self.blink(False))
+        else:
+            self.window.after(random.randint(2500, 5500), self.blink)
+
+    def clear_page(self):
+        self.canvas.delete("page")
+        for widget in self.widgets:
+            widget.destroy()
+        self.widgets = []
+        self.set_status("")
+
+    def show_page(self, page):
+        self.clear_page()
+        self.page = page
+        index = self.pages.index(page)
+        back = "" if index == 0 or page == "done" else "Back"
+        if self.cancellable and page == "provider":
+            back = "Cancel"
+        self.canvas.itemconfigure(self.back, text=back)
+        self.canvas.itemconfigure(self.button_text, text="Open Twin" if page == "done" else "Continue")
+        if not self.cancellable:
+            steps_done = len(self.STEPS) if page == "done" else self.STEPS.index(page)
+            self.draw_track(steps_done)
+        getattr(self, f"page_{page}")()
+
+    def draw_track(self, done_count):
+        c, canvas = self.c, self.canvas
+        for index in range(len(self.NODE_X)):
+            done, active = index < done_count, index == done_count
+            canvas.itemconfigure(f"node{index}", fill=c["lime"] if done else (c["bg2"] if active else c["bg"]),
+                                 outline=c["lime"] if done or active else c["line"])
+            canvas.itemconfigure(f"node{index}_text", text="✓" if done else str(index + 1),
+                                 fill=c["face"] if done else (c["lime"] if active else c["muted"]))
+            canvas.itemconfigure(f"node{index}_label", fill=c["text"] if done or active else c["muted"])
+            if index < len(self.NODE_X) - 1:
+                canvas.itemconfigure(f"link{index}", fill=c["lime"] if done else c["line"])
+
+    def field(self, y, value="", secret=False):
+        c = self.c
+        self.shape("field", 30, y, self.WIDTH - 30, y + 42, 14, c["bg2"], c["line"], extra=("page",))
+        entry = tk.Entry(self.window, show="•" if secret else "", bd=0, highlightthickness=0, relief="flat",
+                         bg=c["bg2"], fg=c["text"], insertbackground=c["lime"], font=(self.display, 14),
+                         disabledbackground=c["bg2"], disabledforeground=c["muted"])
+        entry.insert(0, value)
+        self.canvas.create_window(46, y + 21, anchor="w", window=entry,
+                                  width=self.WIDTH - 30 - 46 - (64 if secret else 16), tags=("page",))
+        self.widgets.append(entry)
+        entry.focus_set()
+        entry.icursor("end")
+        return entry
+
+    def page_provider(self):
+        c = self.c
+        if self.cancellable:
+            self.canvas.itemconfigure(self.title, text="change provider")
+            self.canvas.itemconfigure(self.subtitle, text="Pick a provider and paste its API key.")
+            top = 140
+        else:
+            self.canvas.itemconfigure(self.title, text="set up twin")
+            self.canvas.itemconfigure(self.subtitle, text=(
+                "Pick an AI provider and paste your API key. Only your chats and a short summary of your day "
+                "are sent to it."))
+            top = 214
+        self.text(30, top, "Provider", size=16, bold=True)
+        card_width = (self.WIDTH - 60 - 12) / 2
+        for index, provider in enumerate(PROVIDERS):
+            x1 = 30 + (index % 2) * (card_width + 12)
+            y1 = top + 18 + (index // 2) * 72
+            tag = f"card_{provider}"
+            self.shape(tag, x1, y1, x1 + card_width, y1 + 62, 14, c["card"], c["line"], extra=("page",))
+            self.text(x1 + 16, y1 + 23, PROVIDERS[provider]["label"], size=15, bold=True, tags=("page", tag, f"{tag}_name"))
+            self.text(x1 + 16, y1 + 44, PROVIDERS[provider]["blurb"], size=12, color=c["muted"], tags=("page", tag))
+            self.canvas.tag_bind(tag, "<Button-1>", lambda _e, p=provider: self.select_provider(p))
+            self.canvas.tag_bind(tag, "<Enter>", lambda _e, p=provider: self.hover_card("card", p, True))
+            self.canvas.tag_bind(tag, "<Leave>", lambda _e, p=provider: self.hover_card("card", p, False))
+        key_top = top + 18 + 2 * 72 + 22
+        self.key_heading = self.text(30, key_top, "API key", size=16, bold=True)
+        self.key_entry = self.field(key_top + 18, secret=True)
+        self.reveal = self.text(self.WIDTH - 46, key_top + 39, "show", size=10, color=c["muted"], anchor="e",
+                                mono=True, tags=("page", "reveal"))
+        self.canvas.tag_bind("reveal", "<Button-1>", lambda _e: self.toggle_reveal())
+        self.link = self.text(30, key_top + 78, "Choose a provider to see where to get a key.", size=12,
+                              color=c["muted"], tags=("page", "link"))
+        self.canvas.tag_bind("link", "<Button-1>", lambda _e: self.open_key_page())
+        preset = self.provider or self.prefill_provider or next((p for p in PROVIDERS if llm_providers.env_key(p)), None)
+        if preset:
+            self.select_provider(preset)
+            key = self.validated_key if self.provider == preset and self.validated_key else (
+                self.prefill_key if preset == self.prefill_provider else llm_providers.env_key(preset))
+            if key:
+                self.key_entry.insert(0, key)
+                self.set_status("Your saved key is filled in. Press Continue to check it.")
+
+    def select_provider(self, provider):
+        if self.checking or self.page != "provider":
+            return
+        c = self.c
+        self.provider = provider
+        for key in PROVIDERS:
+            on = key == provider
+            self.canvas.itemconfigure(f"card_{key}_edge", fill=c["lime"] if on else c["line"])
+            self.canvas.itemconfigure(f"card_{key}_fill", fill=mix(c["card"], c["lime"], 0.10) if on else c["card"])
+            self.canvas.itemconfigure(f"card_{key}_name", fill=c["lime"] if on else c["text"])
+        spec = PROVIDERS[provider]
+        self.canvas.itemconfigure(self.key_heading, text=f"{spec['label']} API key")
+        self.canvas.itemconfigure(self.link, text=f"Get a key at {llm_providers.display_url(spec['key_url'])}",
+                                  fill=c["sky"])
+        if self.canvas.itemcget(self.status, "fill") == c["pink"]:
+            self.set_status("")
+        self.key_entry.focus_set()
+
+    def hover_card(self, kind, key, on):
+        selected = self.provider if kind == "card" else self.persona
+        if key != selected:
+            self.canvas.itemconfigure(f"{kind}_{key}_edge", fill=self.c["muted"] if on else self.c["line"])
+        self.canvas.config(cursor="pointinghand" if on else "")
+
+    def toggle_reveal(self):
+        hidden = self.key_entry.cget("show") == "•"
+        self.key_entry.configure(show="" if hidden else "•")
+        self.canvas.itemconfigure(self.reveal, text="hide" if hidden else "show")
+
+    def open_key_page(self):
+        if self.provider:
+            webbrowser.open(PROVIDERS[self.provider]["key_url"])
+
+    def page_name(self):
+        c = self.c
+        self.canvas.itemconfigure(self.title, text="nice, that works")
+        self.canvas.itemconfigure(self.subtitle, text=f"Twin will use {self.client.label}. A couple of quick things and you're done.")
+        self.text(30, 222, "What should Twin call you?", size=18, bold=True)
+        self.name_entry = self.field(242, value=self.name)
+        self.name_entry.select_range(0, "end")
+        self.text(30, 306, "Twin uses this to greet you. It's saved on this Mac.", size=12, color=c["muted"])
+
+    def page_buddy(self):
+        c = self.c
+        self.canvas.itemconfigure(self.title, text=f"hi {self.name}")
+        self.canvas.itemconfigure(self.subtitle, text="Pick the buddy you want to talk to. You can switch anytime with /persona.")
+        self.text(30, 214, "Buddy", size=16, bold=True)
+        for index, (key, persona) in enumerate(PERSONAS.items()):
+            y1 = 232 + index * 58
+            tag = f"buddy_{key}"
+            accent = persona["palette"]["accent"]
+            self.shape(tag, 30, y1, self.WIDTH - 30, y1 + 52, 14, c["card"], c["line"], extra=("page",))
+            self.canvas.create_oval(46, y1 + 12, 74, y1 + 40, fill=accent, outline="", tags=("page", tag))
+            for ex in (55.5, 64.5):
+                self.canvas.create_oval(ex - 1.5, y1 + 20, ex + 1.5, y1 + 27, fill=c["face"], outline="",
+                                        tags=("page", tag))
+            self.text(88, y1 + 18, persona["name"], size=15, bold=True, tags=("page", tag, f"{tag}_name"))
+            self.text(88, y1 + 36, persona["tagline"], size=12, color=c["muted"], tags=("page", tag))
+            self.canvas.tag_bind(tag, "<Button-1>", lambda _e, k=key: self.select_buddy(k))
+            self.canvas.tag_bind(tag, "<Enter>", lambda _e, k=key: self.hover_card("buddy", k, True))
+            self.canvas.tag_bind(tag, "<Leave>", lambda _e, k=key: self.hover_card("buddy", k, False))
+        self.select_buddy(self.persona)
+        self.window.focus_set()
+
+    def select_buddy(self, key):
+        c = self.c
+        self.persona = key
+        for other, persona in PERSONAS.items():
+            on = other == key
+            accent = persona["palette"]["accent"]
+            self.canvas.itemconfigure(f"buddy_{other}_edge", fill=accent if on else c["line"])
+            self.canvas.itemconfigure(f"buddy_{other}_fill", fill=mix(c["card"], accent, 0.12) if on else c["card"])
+            self.canvas.itemconfigure(f"buddy_{other}_name", fill=accent if on else c["text"])
+
+    def page_permissions(self):
+        c = self.c
+        self.canvas.itemconfigure(self.title, text="permissions")
+        self.canvas.itemconfigure(self.subtitle, text="Each one turns on a feature. You can skip any of them.")
+        self.permission_rows = {}
+        y1 = 214
+        for key, title, detail in PERMISSIONS:
+            title_item = self.text(48, y1 + 14, title, size=15, bold=True, anchor="nw")
+            detail_item = self.text(48, self.canvas.bbox(title_item)[3] + 3, detail, size=12, color=c["muted"],
+                                    width=self.WIDTH - 30 - 48 - 140, anchor="nw")
+            y2 = self.canvas.bbox(detail_item)[3] + 14
+            self.shape(f"perm_{key}", 30, y1, self.WIDTH - 30, y2, 14, c["card"], c["line"], extra=("page",))
+            self.canvas.tag_lower(f"perm_{key}", title_item)
+            action = self.text(self.WIDTH - 48, (y1 + y2) / 2, "", size=13, bold=True, anchor="e",
+                               tags=("page", f"perm_action_{key}"))
+            self.canvas.tag_bind(f"perm_action_{key}", "<Button-1>", lambda _e, k=key: self.permission_clicked(k))
+            self.canvas.tag_bind(f"perm_action_{key}", "<Enter>", lambda _e: self.canvas.config(cursor="pointinghand"))
+            self.canvas.tag_bind(f"perm_action_{key}", "<Leave>", lambda _e: self.canvas.config(cursor=""))
+            self.permission_rows[key] = action
+            y1 = y2 + 10
+        self.asked = set()
+        self.window.focus_set()
+        self.refresh_permissions()
+
+    def refresh_permissions(self):
+        if self.page != "permissions" or not self.window.winfo_exists():
+            return
+        c = self.c
+        for key, action in self.permission_rows.items():
+            state = permission_state(key)
+            if state == "allowed":
+                label, color = "Allowed", c["lime"]
+            elif state == "unavailable":
+                label, color = "Not available", c["muted"]
+            elif state == "ask" and key not in self.asked:
+                label, color = "Allow", c["sky"]
+            else:
+                label, color = "Open Settings", c["sky"]
+            self.canvas.itemconfigure(action, text=label, fill=color)
+        self.window.after(1000, self.refresh_permissions)
+
+    def permission_clicked(self, key):
+        state = permission_state(key)
+        if state in ("allowed", "unavailable"):
+            return
+        request_permission(key, "ask" if state == "ask" and key not in self.asked else "denied")
+        self.asked.add(key)
+        if key == "messages":
+            self.set_status("After turning on Full Disk Access for Twin, Messages will work the next time Twin starts.")
+
+    def page_done(self):
+        c = self.c
+        result = create_database()
+        self.canvas.itemconfigure(self.title, text="you're all set")
+        self.canvas.itemconfigure(self.subtitle, text="Here's how Twin is set up.")
+        rows = (("Name", self.name), ("Provider", self.client.label), ("Buddy", PERSONAS[self.persona]["name"]),
+                ("Your data", DB_DISPLAY_PATH))
+        for index, (label, value) in enumerate(rows):
+            y = 222 + index * 32
+            self.text(30, y, label, size=11, color=c["muted"], mono=True)
+            self.text(150, y, value, size=14, width=self.WIDTH - 180)
+        database_line = {
+            "created": f"Your own local database was just created at {DB_DISPLAY_PATH}. It's yours, and nothing in it is shared.",
+            "found": f"Your local database is at {DB_DISPLAY_PATH}. It's yours, and nothing in it is shared.",
+            "failed": f"Twin couldn't create its database at {DB_DISPLAY_PATH}. It will try again next time it starts.",
+        }[result]
+        line = self.text(30, 362, database_line, size=13, color=c["pink"] if result == "failed" else c["text"],
+                         width=self.WIDTH - 60, anchor="nw")
+        below = self.canvas.bbox(line)[3] + 14
+        tip = self.text(30, below, "Press Cmd+Shift+Space anytime to show or hide Twin.", size=13, color=c["muted"],
+                        width=self.WIDTH - 60, anchor="nw")
+        self.after_done_y = self.canvas.bbox(tip)[3] + 14
+        self.config.update(name=self.name, persona=self.persona, provider=self.client.provider, onboarded=True)
+        try:
+            save_config(self.config)
+        except OSError as e:
+            print(f"[buddy] couldn't save {CONFIG_PATH}: {e}", file=sys.stderr)
+            self.text(30, self.after_done_y, SAVE_FAILED_NOTE, size=13, color=c["pink"], width=self.WIDTH - 60,
+                      anchor="nw")
+        self.window.focus_set()
+
+    def set_status(self, text, kind="info"):
+        color = {"info": self.c["muted"], "error": self.c["pink"], "ok": self.c["lime"]}[kind]
+        self.canvas.itemconfigure(self.status, text=text, fill=color)
+
+    def hover_button(self, on):
+        if not self.checking and not self.finishing:
+            self.canvas.itemconfigure("button_fill", fill=mix(self.c["lime"], "#FFFFFF", 0.15) if on else self.c["lime"])
+        self.canvas.config(cursor="pointinghand" if on else "")
+
+    def set_busy(self, busy):
+        self.checking = busy
+        c = self.c
+        self.canvas.itemconfigure("button_fill", fill=c["line"] if busy else c["lime"])
+        self.canvas.itemconfigure(self.button_text, text="Checking..." if busy else "Continue",
+                                  fill=c["muted"] if busy else c["face"])
+        self.key_entry.configure(state="disabled" if busy else "normal")
+
+    def go_back(self):
+        if self.checking or self.finishing:
+            return
+        if self.cancellable and self.page == "provider":
+            self.close()
+            return
+        index = self.pages.index(self.page)
+        if index > 0 and self.page != "done":
+            if self.page == "name":
+                self.name = self.name_entry.get().strip() or self.name
+            self.show_page(self.pages[index - 1])
+
+    def next(self):
+        if self.checking or self.finishing:
+            return
+        if self.page == "provider":
+            self.check_key()
+        elif self.page == "name":
+            name = extract_name(self.name_entry.get())
+            if not name:
+                self.set_status("Type the name you'd like Twin to use, like Sam.", "error")
+                self.name_entry.focus_set()
+                return
+            self.name = name
+            self.show_page("buddy")
+        elif self.page == "buddy":
+            self.show_page("permissions")
+        elif self.page == "permissions":
+            self.show_page("done")
+        elif self.page == "done":
+            self.finish(self.client, None)
+
+    def check_key(self):
+        key = self.key_entry.get().strip()
+        problem = llm_providers.precheck_key(self.provider, key)
+        if problem:
+            self.set_status(problem, "error")
+            if self.provider:
+                self.key_entry.focus_set()
+            return
+        if self.client is not None and self.validated_key == key and self.client.provider == self.provider:
+            self.show_page(self.pages[1])
+            return
+        provider = self.provider
+        model = llm_providers.model_for(provider, self.config)
+        self.set_busy(True)
+        self.set_status(f"Checking your key with {PROVIDERS[provider]['label']}. This sends one small test request.")
+        threading.Thread(
+            target=lambda: self.results.put((provider, key, *llm_providers.validate_key(provider, key, model))),
+            daemon=True,
+        ).start()
+
+    def poll(self):
+        if not self.window.winfo_exists():
+            return
+        try:
+            provider, key, client, problem = self.results.get_nowait()
+        except queue.Empty:
+            self.window.after(100, self.poll)
+            return
+        self.set_busy(False)
+        if client is None:
+            self.set_status(problem, "error")
+            self.key_entry.focus_set()
+            self.key_entry.select_range(0, "end")
+            self.window.after(100, self.poll)
+            return
+        self.client = client
+        self.validated_key = key
+        self.notice = None if llm_providers.keychain_save(provider, key) else KEY_NOT_SAVED_NOTE
+        self.config["provider"] = provider
+        try:
+            save_config(self.config)
+        except OSError as e:
+            print(f"[buddy] couldn't save {CONFIG_PATH}: {e}", file=sys.stderr)
+        if self.cancellable:
+            self.finish(client, self.notice)
+            return
+        self.show_page("name")
+        self.window.after(100, self.poll)
+
+    def finish(self, client, notice):
+        if self.finishing:
+            return
+        self.finishing = True
+        notice = notice or getattr(self, "notice", None)
+
+        def fade(alpha):
+            if alpha <= 0 or not self.window.winfo_exists():
+                if self.window.winfo_exists():
+                    self.window.destroy()
+                self.on_done(client, notice)
+                return
+            try:
+                self.window.attributes("-alpha", alpha)
+            except tk.TclError:
+                pass
+            self.window.after(16, lambda: fade(round(alpha - 0.12, 2)))
+
+        fade(1.0)
+
+    def close(self):
+        if self.cancellable:
+            self.window.destroy()
+        else:
+            self.root.destroy()
+
+
 def main():
-    persona_key = resolve_persona_key()
-    startup_notice = refresh_activity() if load_config().get("onboarded") else None
-    ctx = multiprocessing.get_context("spawn")
-    hotkey_events = ctx.Queue()
-    listener = ctx.Process(target=listen_for_hotkey, args=(hotkey_events,), daemon=True)
-    listener.start()
+    if HOTKEY_FLAG in sys.argv:
+        setup_logging(child=True)
+        run_hotkey_listener()
+        return
+    if CALENDAR_FLAG in sys.argv:
+        setup_logging(child=True)
+        try:
+            calendar_reader.request_permission()
+        except calendar_reader.CalendarAccessError as e:
+            print(f"[buddy] calendar access: {e}", file=sys.stderr)
+        return
+    setup_logging()
+    configure_bundled_tcl()
+    register_fonts()
+    config = load_config()
+    persona_key = resolve_persona_key(config)
+    startup_notice = refresh_activity() if config.get("onboarded") else None
+    hotkey_events = queue.Queue()
+    listener = start_hotkey_listener(hotkey_events)
     root = tk.Tk()
-    root.title("Twin Buddy")
-    Buddy(root, hotkey_events, persona_key, startup_notice)
+    root.withdraw()
+    root.title("Twin")
+
+    def start(client, notice=None, fresh=False):
+        current = load_config() if fresh else config
+        buddy = Buddy(root, hotkey_events, resolve_persona_key(current), startup_notice, client, fresh=fresh)
+        if notice:
+            buddy.notify(notice)
+        if not accessibility_trusted():
+            buddy.notify(ACCESSIBILITY_NOTE)
+
+    client = llm_providers.saved_client(config)
+    if client is None or not config.get("onboarded"):
+        SetupScreen(root, config, on_done=lambda c, n: start(c, n, fresh=True), saved=client)
+    else:
+        start(client)
     try:
         root.mainloop()
     finally:
-        listener.terminate()
+        if listener is not None:
+            listener.terminate()
     sys.exit(0)
 
 

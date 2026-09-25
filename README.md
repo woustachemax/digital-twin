@@ -1,10 +1,10 @@
 # Twin
 
-A tiny, local-first AI buddy that lives on your Mac.
+A small, local-first AI buddy that lives on your Mac.
 
-Twin floats on your desktop in a small widget, pops up with a global hotkey (`Cmd+Shift+Space`), and chats with you in one of five personas. It builds a rough picture of your day from your own Mac, reading bank SMS that arrive through Messages and events from the Calendar app, and keeps that data in a DuckDB file on your machine. Twin has no server of its own. The only network traffic is the chat request sent directly to the Anthropic API, and that request is scrubbed before it leaves.
+Twin floats on your desktop in a small widget, shows and hides with a global hotkey (`Cmd+Shift+Space`), and chats with you in one of five personas. It builds a rough picture of your day from your own Mac, reading bank SMS that arrive through Messages and events from your calendars, and keeps that data in a DuckDB file on your machine. Twin has no server of its own. When you chat, one request goes directly to the AI provider you picked (Anthropic, OpenAI, Google Gemini, or xAI), and that request is scrubbed before it leaves.
 
-This started as a hackathon project. It works, it's small (about 1,600 lines of Python), and it's meant for anyone to install and hack on.
+This started as a hackathon project. It's about 3,500 lines of Python and meant for anyone to install and change.
 
 ## Contents
 
@@ -12,7 +12,10 @@ This started as a hackathon project. It works, it's small (about 1,600 lines of 
 - [Repository layout](#repository-layout)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Building the app](#building-the-app)
+- [First run](#first-run)
 - [Usage](#usage)
+- [AI providers](#ai-providers)
 - [Personas](#personas)
 - [Configuration](#configuration)
 - [macOS permissions](#macos-permissions)
@@ -27,76 +30,88 @@ This started as a hackathon project. It works, it's small (about 1,600 lines of 
 ## How it works
 
 ```
- ~/Library/Messages/chat.db                     Calendar.app
-            |                                         |
-            v                                         v
- packages/ingest/imessage_export.py        packages/ingest/calendar_reader.py
-            |                                         |
-            v                                         |
- packages/parse/sms_parser.py                         |
-            |                                         |
-            v                                         |
- packages/db/db.py -> ~/.twin/twin.duckdb             |
-            ^               |                         |
-            |               v                         v
-    run_pipeline.py      buddy.py  <------------------+
+ ~/Library/Messages/chat.db              your calendars (EventKit)        your screen (on request)
+            |                                    |                                 |
+            v                                    v                                 v
+ packages/ingest/imessage_export.py   packages/ingest/calendar_reader.py   packages/ingest/screen_reader.py
+            |                                    |                                 |
+            v                                    |                    one vague sentence, made locally
+ packages/parse/sms_parser.py                    |                                 |
+            |                                    |                                 |
+            v                                    |                                 |
+ packages/db/db.py -> ~/.twin/twin.duckdb        |                                 |
+            ^               |                    |                                 |
+            |               v                    v                                 |
+    run_pipeline.py      buddy.py  <-------------+---------------------------------+
                             |
                             |  scrubbed request only
                             v
-                    api.anthropic.com
+          the provider you picked (Anthropic, OpenAI, Google Gemini, or xAI)
 ```
 
-1. **Ingest.** `run_pipeline.py` copies your Messages database to a temp folder, reads the last 200 messages, and deletes the copy.
+1. **Ingest.** Every time Twin starts, it runs the pipeline in `run_pipeline.py`: copy your Messages database to a temp folder, read the last 200 messages, and delete the copy. You can also run the pipeline by hand.
 2. **Parse.** Each message goes through a regex parser that picks out bank transaction SMS: debit or credit, amount, merchant or UPI handle, and reference number. Everything else is ignored.
 3. **Store.** Parsed transactions go into `~/.twin/twin.duckdb`. Every insert also writes a row to an `access_log` table that records what was read and when. Messages already stored are skipped.
-4. **Chat.** `buddy.py` reads the five most recent transactions, turns them into vague phrases like "spent money on food and dining earlier this week", adds today's calendar events, and sends that with your message to Claude. The reply appears in the widget.
+4. **Chat.** `buddy.py` reads the five most recent transactions, turns them into vague phrases like "spent money on food and dining earlier this week", adds today's calendar events, and sends that with your message to your provider. The reply appears in the widget.
 
 ## Repository layout
 
 ```
 digital-twin/
-├── buddy.py                    desktop widget: UI, personas, hotkey, prompt building, request scrubbing
-├── run_pipeline.py             one-shot ingest: Messages -> parser -> twin.duckdb
+├── buddy.py                    desktop app: setup window, widget, personas, hotkey, prompt building, request scrubbing
+├── llm_providers.py            provider clients, key validation, Keychain storage
+├── run_pipeline.py             ingest: Messages -> parser -> twin.duckdb
+├── setup.py                    py2app build script for Twin.app
 ├── packages/
 │   ├── ingest/
 │   │   ├── imessage_export.py  reads recent messages from ~/Library/Messages/chat.db
-│   │   └── calendar_reader.py  reads today's and tomorrow's events from Calendar via AppleScript
+│   │   ├── calendar_reader.py  reads today's and tomorrow's events through EventKit
+│   │   └── screen_reader.py    one screenshot, on-device text recognition, deleted right after
 │   ├── parse/
 │   │   └── sms_parser.py       regex parser for bank transaction SMS (Rs / INR, UPI)
 │   ├── db/
 │   │   └── db.py               DuckDB schema, inserts, dedup check, access log
 │   └── ui/
 │       └── app.py              Streamlit monitor for everything in twin.duckdb
-├── landing/
-│   ├── index.html              static landing page (single file, no build step)
-│   └── package.json            Vercel CLI for deploying the page (the page itself has no dependencies)
-└── .env                        your ANTHROPIC_API_KEY (git-ignored, you create this)
+├── assets/
+│   ├── icon/                   make_icon.py, Twin.icns, and a 1024px preview
+│   └── fonts/                  Bricolage Grotesque and JetBrains Mono, with their OFL licenses
+└── landing/
+    ├── index.html              static landing page (single file, no build step)
+    └── package.json            Vercel CLI for deploying the page (the page itself has no dependencies)
 ```
 
 Your data lives outside the repo, in `~/.twin/`:
 
 ```
 ~/.twin/
-├── twin.duckdb                 your transactions and access log (created on first run)
-└── config.json                 your name and onboarding state
+├── twin.duckdb                 your transactions and access log (created during setup)
+├── config.json                 your name, persona, provider, and setup state
+└── buddy.log                   log output when running as Twin.app
 ```
+
+Your API key is not in either folder. It's stored in your macOS Keychain.
 
 ## Requirements
 
-- **macOS.** Twin reads the Messages database, talks to Calendar through `osascript`, and uses AppKit for the translucent window. It won't work on Linux or Windows.
-- **Python 3 with Tk.** Developed on Python 3.12. The python.org installer includes Tk. With Homebrew, also run `brew install python-tk`.
-- **An Anthropic API key.** Get one from the [Anthropic Console](https://console.anthropic.com/).
+- **macOS.** Twin reads the Messages database, reads your calendars through EventKit, and uses AppKit for the translucent window. It won't work on Linux or Windows.
+- **Python 3 with Tk.** Developed on Python 3.12 with Tk 9. The python.org installer includes Tk. With Homebrew, also run `brew install python-tk`.
+- **An API key** from one of the [supported providers](#ai-providers). You paste it into the setup window on first run.
 
 Python packages:
 
 | Package | Used by | Why |
 |---|---|---|
-| `anthropic` | `buddy.py` | Claude API client |
+| `anthropic` | `llm_providers.py` | Anthropic API client. The other providers use plain HTTPS. |
 | `duckdb` | `buddy.py`, `packages/db`, `packages/ui` | local database |
-| `python-dotenv` | `buddy.py` | loads `.env` |
+| `python-dotenv` | `buddy.py` | loads `.env` when running from a terminal |
 | `pynput` | `buddy.py` | global hotkey |
-| `pyobjc-framework-Cocoa`, `pyobjc-framework-Quartz` | `buddy.py` | translucent window and app focus (optional, Twin falls back to a plain window without them) |
+| `pyobjc-framework-Cocoa`, `pyobjc-framework-Quartz` | `buddy.py` | translucent window, fonts, and app focus (optional, Twin falls back to a plain window without them) |
+| `pyobjc-framework-EventKit` | `calendar_reader.py` | reading calendar events |
+| `pyobjc-framework-Vision` | `screen_reader.py` | on-device text recognition for screen questions |
 | `streamlit`, `pandas` | `packages/ui/app.py` | data monitor (optional) |
+| `py2app` | `setup.py` | building Twin.app (optional) |
+| `Pillow` | `assets/icon/make_icon.py` | regenerating the icon (optional) |
 
 ## Installation
 
@@ -107,57 +122,94 @@ cd digital-twin
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install anthropic duckdb python-dotenv pynput pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-Vision
+pip install anthropic duckdb python-dotenv pynput pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-Vision pyobjc-framework-EventKit
 pip install streamlit pandas
 ```
 
 The second `pip install` is only needed for the data monitor.
 
-Create a `.env` file in the repo root with your key:
-
-```bash
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
-```
-
-`.env` is git-ignored. You can also export `ANTHROPIC_API_KEY` in your shell instead.
-
-## Usage
-
-### 1. Index your activity
-
-```bash
-python3 run_pipeline.py
-```
-
-You'll see something like `Inserted 12 transactions (3 duplicates skipped)`. Run it again whenever you want Twin to catch up. It only adds messages it hasn't stored before.
-
-Transactions go into `~/.twin/twin.duckdb`. The folder and file are created if they don't exist yet, with the folder readable only by you (mode `700`). You can run the pipeline from any directory.
-
-You can skip this step. Twin still works, it just won't know anything about your spending.
-
-### 2. Start Twin
+Then run it from the terminal:
 
 ```bash
 python3 buddy.py
 ```
 
-On first launch Twin explains what it reads and what it sends, then asks for your name. Once you answer, it creates your database at `~/.twin/twin.duckdb` (or tells you it found an existing one) and saves your name to `~/.twin/config.json` (file mode `600`) so it only asks once.
+You don't need a `.env` file. The setup window asks for your key. If you do have a key in `.env` or your shell (see [Configuration](#configuration)), the setup window fills it in for you.
 
-### 3. Talk to it
+## Building the app
+
+To get a double-clickable `Twin.app`:
+
+```bash
+pip install py2app
+rm -rf build dist && python3 setup.py py2app && codesign --force --deep -s - dist/Twin.app
+open dist/Twin.app
+```
+
+The app bundles its own Python, Tcl/Tk, fonts, and icon, so it doesn't depend on your Python install. When running as the app, logs go to `~/.twin/buddy.log`.
+
+A few things to know:
+
+- The app is ad-hoc signed, not notarized. It runs on the Mac that built it. Other Macs will show a Gatekeeper warning.
+- macOS ties permissions to the app's signature, and every rebuild gets a new one. After rebuilding, turn Twin back on under Full Disk Access, Accessibility, and Screen Recording.
+- `setup.py` works around a few py2app issues with uv-managed Python: it raises the recursion limit, handles a built-in `zlib`, and copies the Tcl/Tk libraries into the bundle.
+
+To change the icon, edit `assets/icon/make_icon.py`, run `python3 assets/icon/make_icon.py`, and rebuild.
+
+## First run
+
+The first time Twin starts (or any time `~/.twin/config.json` is missing or setup wasn't finished), it opens a setup window before the chat widget. It has four steps and a summary:
+
+1. **Provider.** Pick Anthropic, OpenAI, Google Gemini, or xAI, and paste your API key. Twin checks the key with one small test request, then saves it to your macOS Keychain. If the key is wrong, out of credits, or from a different provider, it says so and lets you try again.
+2. **Name.** What Twin should call you. It's filled in with the first name from your Mac account.
+3. **Buddy.** Pick one of the five personas. Twin is selected by default.
+4. **Permissions.** Buttons for Calendar, the keyboard shortcut, and Messages. macOS only prompts when you click one. You can skip this page.
+5. **Done.** A summary of your choices. Twin creates your database at `~/.twin/twin.duckdb` here.
+
+Closing the window before finishing quits Twin, and it starts from step 1 next time. Your provider and saved key are filled in again.
+
+## Usage
 
 | Action | How |
 |---|---|
 | Show or hide Twin | `Cmd+Shift+Space` from anywhere |
 | Ask something | Type in the box and press Return |
 | Move the widget | Drag it |
-| List personas | `/persona` |
-| Switch persona live | `/persona <key>`, for example `/persona gengar` |
+| List personas | `/persona`, then click one to switch |
+| Switch persona | `/persona <key>`, for example `/persona gengar` |
+| Change provider or key | `/setup` |
+| Ask about your screen | "what am I looking at?", "what's on my screen?" |
 
 Twin fills in context on its own. Ask "what should I be doing?" and it may mention your next calendar event. Ask "have I been spending a lot?" and it answers from the vague summary, never with amounts.
 
+Every launch refreshes your transactions from Messages before the widget opens. To refresh by hand:
+
+```bash
+python3 run_pipeline.py
+```
+
+You'll see something like `Inserted 12 transactions (3 duplicates skipped)`. It only adds messages it hasn't stored before.
+
+## AI providers
+
+| Provider | Default model | API used | Key from |
+|---|---|---|---|
+| Anthropic | `claude-sonnet-4-6` | Anthropic Python SDK | console.anthropic.com/settings/keys |
+| OpenAI | `gpt-6-luna` (reasoning off, storage off) | Responses API | platform.openai.com/api-keys |
+| Google Gemini | `gemini-3.5-flash-lite` (thinking set to minimal) | OpenAI-compatible Chat Completions | aistudio.google.com/apikey |
+| xAI | `grok-4.3` | Responses API | console.x.ai |
+
+Keys are stored in the macOS Keychain as "Twin &lt;provider&gt; API key". To remove one:
+
+```bash
+security delete-generic-password -s "Twin Anthropic API key"
+```
+
+To use a different model, set `"model"` in `~/.twin/config.json` or the `TWIN_MODEL` environment variable.
+
 ## Personas
 
-Pick one at launch with the `PERSONA` environment variable, or switch live with `/persona <key>`. Both take the **key** in the first column, not the display name.
+Pick one during setup, switch live with `/persona <key>`, or start with the `PERSONA` environment variable. Commands and the variable take the **key** in the first column, not the display name. Your choice is saved and used on the next launch.
 
 | Key | Name | Avatar | Personality | Background | Accent | Text |
 |---|---|---|---|---|---|---|
@@ -171,55 +223,65 @@ Pick one at launch with the `PERSONA` environment variable, or switch live with 
 PERSONA=calm python3 buddy.py
 ```
 
-An unknown key prints a warning and falls back to `twin`. Every other widget color (border, bubble, input field, muted text, avatar) comes from these three palette values through `theme_for()` in `buddy.py`.
+An unknown key prints a warning and is ignored. Every other widget color (border, bubble, input field, muted text, avatar) comes from these three palette values through `theme_for()` in `buddy.py`.
 
-To add your own persona, add an entry to the `PERSONAS` dict with `name`, `avatar` (`bun`, `ghost`, or `monogram`), `system_prompt`, `palette`, `greeting` (may use `{name}`), `idle`, `busy`, and `done`.
+Every message Twin shows, including errors and refusals, is in the current persona's voice. When the provider can't be reached, each persona has its own written lines for that.
+
+To add your own persona, add an entry to the `PERSONAS` dict with `name`, `tagline`, `avatar` (`bun`, `ghost`, or `monogram`), `system_prompt`, `palette`, `greeting` (may use `{name}`), `idle`, `busy`, `done`, `frame`, and `offline`.
 
 ## Configuration
 
 | Variable | Default | Effect |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | none | Required for chat. Without it Twin opens but only shows a reminder to set it. |
-| `PERSONA` | `twin` | Persona key to start with. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` | none | Filled into the setup window, and used instead of the Keychain key for that provider when set. |
+| `PERSONA` | saved choice, then `twin` | Persona key to start with. |
+| `TWIN_MODEL` | provider default | Model to use for the chosen provider. |
 | `TWIN_DB_PATH` | `~/.twin/twin.duckdb` | Database used by the pipeline, `buddy.py`, and the monitor. |
-| `TWIN_CONFIG_PATH` | `~/.twin/config.json` | Where your name and onboarding state are saved. |
+| `TWIN_CONFIG_PATH` | `~/.twin/config.json` | Where your name, persona, provider, and setup state are saved. |
+| `TWIN_OCR_SHORTCUT` | `Twin Extract Text` | Shortcut used for text recognition if the Vision package isn't installed. |
 | `BUDDY_DEBUG` | off | Set to `1` to print every outgoing API request to stderr. See [Privacy](#privacy). |
 
-Constants near the top of `buddy.py` cover the rest: `MODEL` (`claude-sonnet-4-6`), `MAX_TOKENS`, `HOTKEY`, widget size, and how often the calendar is refreshed (every 5 minutes, or 30 seconds after an error).
+Constants near the top of `buddy.py` cover the rest: `MAX_TOKENS`, `HOTKEY`, widget size, and how often the calendar is refreshed (every 5 minutes, or 30 seconds after an error).
 
 ## macOS permissions
 
-macOS asks for these the first time each feature runs. Grant them to the app you launch Twin from (Terminal, iTerm, VS Code, and so on).
+The setup window's permissions page lets you grant these up front. When running from a terminal, grant them to the terminal app. When running `Twin.app`, grant them to Twin.
 
 | Permission | Needed for | Where to grant it |
 |---|---|---|
-| Full Disk Access | `run_pipeline.py` reading `~/Library/Messages/chat.db` | System Settings > Privacy & Security > Full Disk Access |
-| Accessibility and Input Monitoring | the global hotkey (`pynput`) | System Settings > Privacy & Security > Accessibility / Input Monitoring |
-| Automation: Calendar | reading calendar events | Allow when prompted, or System Settings > Privacy & Security > Automation |
+| Full Disk Access | reading `~/Library/Messages/chat.db` | System Settings > Privacy & Security > Full Disk Access |
+| Accessibility | the global hotkey (`pynput`) | System Settings > Privacy & Security > Accessibility |
+| Calendars (full access) | reading calendar events | Allow when prompted, or System Settings > Privacy & Security > Calendars |
+| Screen Recording | answering questions about your screen | System Settings > Privacy & Security > Screen & System Audio Recording |
 
-If the calendar isn't allowed yet, Twin says so in the widget and keeps working without it.
+Twin keeps working without any of them. It says in the widget which feature is off and where to turn it on. Calendar permission requests run in a separate helper process, so the prompt never interrupts the widget.
 
 ## Privacy
 
 ### What stays on your Mac
 
 - `~/.twin/twin.duckdb`, which holds the parsed transactions and the full raw SMS text.
-- `~/.twin/config.json`, which holds your name.
+- `~/.twin/config.json`, which holds your name, persona, and provider.
+- Your API key, in the macOS Keychain.
 - The temporary copy of the Messages database, which is deleted right after reading.
+- Screenshots, which are read on-device and deleted right away.
 
-There are no accounts, no sync, no analytics, and no Twin server. Everyone who installs Twin gets their own fresh `twin.duckdb`, created in their own home folder on first run. It lives outside the repo, so it never ends up in git. Nothing is shared or pooled between users.
+There are no accounts, no sync, no analytics, and no Twin server. Everyone who installs Twin gets their own `twin.duckdb`, created in their own home folder during setup. It lives outside the repo, so it never ends up in git. Nothing is shared or pooled between users.
 
-### What is sent to Anthropic
+### What is sent to your provider
 
-Each chat message makes one request to the Anthropic API containing:
+Each chat message makes one request to the provider you picked, containing:
 
 - your message
-- your name, if you gave one
+- your name
 - the current time and day of the week
 - the titles and times of today's calendar events
 - a vague summary of up to five recent transactions, such as `- received a payment yesterday`
+- when you ask about your screen, one sentence describing it, such as "They're in Mail, looking at what seems to be an email inbox."
 
-It never includes amounts, balances, account numbers, reference numbers, merchant names, UPI handles, or raw SMS text.
+It never includes amounts, balances, account numbers, reference numbers, merchant names, UPI handles, raw SMS text, screenshots, or text read from your screen.
+
+Two other requests go to the provider: the small test request that checks your key during setup, and short requests that rephrase Twin's status messages in the persona's voice. Neither contains your data.
 
 ### How that's enforced
 
@@ -227,7 +289,8 @@ It never includes amounts, balances, account numbers, reference numbers, merchan
 
 1. **Allowlisted vocabulary.** Each line of the transaction summary must exactly match a fixed list of phrases (an activity like "spent money on groceries" plus a time phrase like "earlier this week"). Any line that doesn't match is dropped.
 2. **Scrubbing.** Before sending, the system prompt and every message are scrubbed. Sentences that look like bank SMS are replaced with `[removed: SMS text]`. Currency amounts, account numbers, email or UPI handles, long IDs, and numbers are replaced with `[amount]`, `[account]`, `[id]`, and `[number]`. Calendar titles are cut to 80 characters and scrubbed too.
-3. **Field allowlist.** Only `model`, `max_tokens`, `system`, and `messages` are sent. Any other field is dropped.
+3. **Field allowlist.** Only the system prompt, the messages, and a token limit are passed to the provider client. Anything else is dropped.
+4. **Local screen summary.** The screen sentence is built on your Mac from the app name and a guess at the kind of content. The recognized text never leaves `screen_reader.py`.
 
 To see exactly what leaves your machine, run:
 
@@ -235,7 +298,7 @@ To see exactly what leaves your machine, run:
 BUDDY_DEBUG=1 python3 buddy.py
 ```
 
-Every request is printed to stderr before it's sent, along with a list of what was redacted.
+Every request is printed to stderr before it's sent, along with the provider, the model, and a list of what was redacted.
 
 ## Local data monitor
 
@@ -246,6 +309,8 @@ streamlit run packages/ui/app.py --browser.gatherUsageStats false
 ```
 
 It opens the database read-only and respects `TWIN_DB_PATH`. The dashboard's own code makes no network calls. Streamlit itself collects anonymous usage statistics by default, which the flag above turns off. To turn them off permanently, add `gatherUsageStats = false` under `[browser]` in `~/.streamlit/config.toml`.
+
+While the dashboard is open, the startup refresh may find the database busy. Twin says so and tries again on the next launch.
 
 ## Database schema
 
@@ -283,17 +348,21 @@ python3 -c "import duckdb, os; print(duckdb.connect(os.path.expanduser('~/.twin/
 
 ### `buddy.py`
 
-The desktop app. A borderless Tk window, made translucent through AppKit when PyObjC is available, with an animated avatar, a speech bubble, and an input field. The global hotkey listener runs in a separate process and sends toggle events through a queue. Calendar events are fetched in a background thread and cached. Claude calls also run in a background thread so the widget never freezes.
+The desktop app. On first run it shows the setup window described in [First run](#first-run). After that it shows a borderless Tk widget, made translucent through AppKit when PyObjC is available, with an animated avatar, a speech bubble, and an input field. The fonts match the landing page.
+
+Two helper processes run alongside it, both started by relaunching the same program with a flag: `--hotkey-listener` watches for the global hotkey, and `--request-calendar` asks macOS for calendar access. Keeping them out of the widget's process means neither can freeze or crash the window. Calendar events and API calls run in background threads.
+
+### `llm_providers.py`
+
+One client per provider behind a common `complete()` method. Anthropic uses the official SDK. OpenAI and xAI use the Responses API, and Gemini uses its OpenAI-compatible Chat Completions endpoint, all over plain HTTPS. It also checks keys, maps provider errors (bad key, rate limit, offline, server error) to plain messages, and stores keys in the Keychain.
 
 ### `run_pipeline.py`
 
-Ties the pipeline together: fetch messages, parse them, skip anything already stored, and insert the rest with `source="imessage_pipeline"`. Prints a count when done.
+Ties the pipeline together: fetch messages, parse them, skip anything already stored, and insert the rest with `source="imessage_pipeline"`. `ingest()` returns the counts, and running the file prints them.
 
 ### `packages/ingest/imessage_export.py`
 
 Copies `chat.db` (plus its `-wal` and `-shm` files) to a temp folder so it never touches the live database, opens the copy read-only, and returns the most recent messages oldest first. Newer macOS versions store some message text only in the `attributedBody` blob, so it decodes that too, with `plutil` as a fallback. Timestamps are converted from Apple's 2001 epoch.
-
-Run it on its own to check access:
 
 ```bash
 python3 packages/ingest/imessage_export.py
@@ -301,17 +370,23 @@ python3 packages/ingest/imessage_export.py
 
 ### `packages/ingest/calendar_reader.py`
 
-Runs an AppleScript through `osascript` that collects every event starting today or tomorrow across all calendars. It returns the title, start time, all-day flag, and calendar name. Permission errors and timeouts become a readable `CalendarAccessError`.
+Uses Apple's EventKit framework to read every event today or tomorrow across all calendars, including each occurrence of repeating events. It reads the calendar data directly, so Calendar.app never opens. It returns the title, start time, all-day flag, and calendar name. Permission problems become a readable `CalendarAccessError`, with a separate message when Twin only has add-only access.
 
 ```bash
 python3 packages/ingest/calendar_reader.py
 ```
 
+### `packages/ingest/screen_reader.py`
+
+Takes one screenshot with `screencapture` into a private temp folder, reads the text with Apple's Vision framework (or a Shortcut if Vision isn't installed), and deletes the folder right away. `describe_screen()` then turns the text and the app name into one vague sentence. Twin hides its own window while the screenshot is taken so it doesn't read itself.
+
+```bash
+python3 packages/ingest/screen_reader.py
+```
+
 ### `packages/parse/sms_parser.py`
 
 Regex parser for bank transaction SMS in the formats Indian banks commonly use: `Rs.`, `Rs`, or `INR` amounts, `debited`/`credited`/`spent` keywords, UPI handles like `name@upi`, merchants in "at SWIGGY using UPI" phrasing, and `Ref No`, `RRN`, `UPI Ref`, or `Txn ID` references. A message is only kept if it has both a transaction type and an amount.
-
-Running it directly prints the parsed result for three sample messages:
 
 ```bash
 python3 packages/parse/sms_parser.py
@@ -319,7 +394,7 @@ python3 packages/parse/sms_parser.py
 
 ### `packages/db/db.py`
 
-Opens the database, creates the schema, and provides `insert_transaction`, `transaction_exists`, `insert_access_log`, and `get_recent_access_log`. Every transaction insert writes an access log entry.
+Opens the database (creating `~/.twin` with mode `700` if needed), creates the schema, and provides `insert_transaction`, `transaction_exists`, `insert_access_log`, and `get_recent_access_log`. Every transaction insert writes an access log entry.
 
 ### `packages/ui/app.py`
 
@@ -339,11 +414,16 @@ It covers the pitch, the "why local" explanation, an animated features grid, per
 
 | Problem | Fix |
 |---|---|
-| `unable to open database file` or permission error from the pipeline | Give your terminal Full Disk Access, then restart it. |
-| Hotkey does nothing | Grant Accessibility and Input Monitoring to your terminal and restart Twin. |
-| Twin says it can't reach Claude yet | Add `ANTHROPIC_API_KEY` to `.env` in the repo root, or export it in your shell, then restart Twin. |
-| "Calendar access isn't allowed yet" | Allow the Automation prompt, or enable Calendar for your terminal under Privacy & Security > Automation. |
-| Twin knows nothing about your spending | Run `python3 run_pipeline.py`, and make sure `TWIN_DB_PATH` (if set) is the same for the pipeline and for Twin. |
+| The setup window says the key didn't work | Check you copied the whole key and picked the matching provider. If it says the key is out of credits, check billing with that provider. |
+| Twin says your provider didn't accept the key | Type `/setup` in the widget and paste a new key. |
+| The setup window shows up again on launch | Setup wasn't finished, or `~/.twin/config.json` was removed. Finish the steps once. |
+| Twin can't read Messages | Give Full Disk Access to Twin (or your terminal), then restart Twin. |
+| Hotkey does nothing | Allow Twin (or your terminal) under Accessibility, then restart Twin. |
+| "Calendar access isn't allowed yet" | Use the Calendar button on the setup window's permissions page, or turn on full access under Privacy & Security > Calendars. |
+| "I can only add calendar events right now" | Twin has add-only access. Switch it to Full Access under Privacy & Security > Calendars. |
+| Twin can't see your screen | Allow Twin (or your terminal) under Screen & System Audio Recording. |
+| Permissions stopped working after rebuilding the app | Each rebuild gets a new signature. Turn Twin back on in each Privacy & Security list. |
+| Twin knows nothing about your spending | Check Full Disk Access, and make sure `TWIN_DB_PATH` (if set) is the same for the pipeline and for Twin. |
 | `ModuleNotFoundError: No module named '_tkinter'` | Install a Python with Tk (python.org installer, or `brew install python-tk`). |
 | Plain opaque window instead of a translucent one | Install `pyobjc-framework-Cocoa` and `pyobjc-framework-Quartz`. |
 | Pipeline inserts 0 transactions | It only reads the last 200 messages, and only bank SMS in the supported formats count. |
@@ -352,8 +432,9 @@ It covers the pitch, the "why local" explanation, an animated features grid, per
 
 - macOS only.
 - The SMS parser targets Indian bank and UPI message formats. Other formats are ignored until someone adds patterns for them.
-- The pipeline reads only the 200 most recent messages per run and doesn't run on a schedule.
+- The pipeline reads only the 200 most recent messages per run.
 - Twin only looks at the five most recent transactions when chatting.
 - Each chat message is answered on its own. Twin doesn't remember earlier turns of the conversation.
-- There's no packaged `.app` yet. You run it from a terminal.
-- No license file yet. Until one is added, default copyright applies.
+- Answers about your screen are vague on purpose, since only a one-sentence summary is sent.
+- `Twin.app` isn't notarized, so it's meant for the Mac that built it.
+- No license file yet. Until one is added, default copyright applies. The bundled fonts are under the SIL Open Font License.
