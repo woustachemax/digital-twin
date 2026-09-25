@@ -1,94 +1,102 @@
-import subprocess
-from datetime import date, datetime, timedelta
+import threading
+from datetime import date, datetime, time, timedelta
 
-FIELD_SEP = "\x1f"
-RECORD_SEP = "\x1e"
-TIMEOUT_SECONDS = 30
+PERMISSION_TIMEOUT_SECONDS = 60
 
 PERMISSION_MESSAGE = (
     "Calendar access isn't allowed yet. Allow it when macOS asks "
-    "(or in System Settings → Privacy & Security → Automation)."
+    "(or in System Settings → Privacy & Security → Calendars)."
 )
-TIMEOUT_MESSAGE = "Calendar didn't respond in time. If macOS asked for permission, allow it and try again."
-
-SCRIPT = """
-on pad(n)
-    if n < 10 then return "0" & n
-    return n as text
-end pad
-
-on stamp(d)
-    return (year of d as text) & "-" & my pad(month of d as integer) & "-" & my pad(day of d) & "T" & my pad(hours of d) & ":" & my pad(minutes of d)
-end stamp
-
-set fieldSep to character id 31
-set recordSep to character id 30
-set startOfToday to current date
-set time of startOfToday to 0
-set endOfTomorrow to startOfToday + (2 * days)
-set output to {}
-tell application "Calendar"
-    repeat with cal in calendars
-        set calName to name of cal
-        set matches to (every event of cal whose start date >= startOfToday and start date < endOfTomorrow)
-        repeat with ev in matches
-            set evTitle to summary of ev
-            if evTitle is missing value then set evTitle to "Untitled event"
-            set end of output to evTitle & fieldSep & my stamp(start date of ev) & fieldSep & (allday event of ev as text) & fieldSep & calName
-        end repeat
-    end repeat
-end tell
-set AppleScript's text item delimiters to recordSep
-return output as text
-"""
+WRITE_ONLY_MESSAGE = (
+    "I can only add calendar events right now, not read them. Switch me to Full Access in "
+    "System Settings → Privacy & Security → Calendars."
+)
+TIMEOUT_MESSAGE = "macOS is still waiting for you to allow calendar access. Allow it when it asks, then try again."
+UNAVAILABLE_MESSAGE = "Calendar reading needs pyobjc-framework-EventKit (pip install pyobjc-framework-EventKit)."
 
 
 class CalendarAccessError(Exception):
     pass
 
 
-def run_script():
+def load_eventkit():
     try:
-        result = subprocess.run(
-            ["osascript", "-"], input=SCRIPT, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError:
-        raise CalendarAccessError("Calendar reading needs macOS (osascript wasn't found).")
-    except subprocess.TimeoutExpired:
+        import EventKit
+        from Foundation import NSDate
+    except ImportError:
+        raise CalendarAccessError(UNAVAILABLE_MESSAGE)
+    return EventKit, NSDate
+
+
+def request_access(EventKit, store):
+    granted = {}
+    done = threading.Event()
+
+    def completion(ok, error):
+        granted["ok"] = bool(ok)
+        done.set()
+
+    if hasattr(store, "requestFullAccessToEventsWithCompletion_"):
+        store.requestFullAccessToEventsWithCompletion_(completion)
+    else:
+        store.requestAccessToEntityType_completion_(EventKit.EKEntityTypeEvent, completion)
+    if not done.wait(PERMISSION_TIMEOUT_SECONDS):
         raise CalendarAccessError(TIMEOUT_MESSAGE)
-    if result.returncode != 0:
-        error = result.stderr.strip()
-        if "-1743" in error or "Not authorized" in error or "not allowed" in error.lower():
-            raise CalendarAccessError(PERMISSION_MESSAGE)
-        if "-1712" in error:
-            raise CalendarAccessError(TIMEOUT_MESSAGE)
-        detail = error.splitlines()[-1] if error else f"exit code {result.returncode}"
-        raise CalendarAccessError(f"Couldn't read Calendar: {detail}")
-    return result.stdout.rstrip("\n")
+    return granted.get("ok", False)
 
 
-def parse_events(raw):
+def ensure_access(EventKit, store, allow_prompt=False):
+    status = EventKit.EKEventStore.authorizationStatusForEntityType_(EventKit.EKEntityTypeEvent)
+    if status == EventKit.EKAuthorizationStatusFullAccess:
+        return
+    if status == EventKit.EKAuthorizationStatusNotDetermined and allow_prompt and request_access(EventKit, store):
+        return
+    if status == EventKit.EKAuthorizationStatusWriteOnly:
+        raise CalendarAccessError(WRITE_ONLY_MESSAGE)
+    raise CalendarAccessError(PERMISSION_MESSAGE)
+
+
+def to_datetime(nsdate):
+    return datetime.fromtimestamp(nsdate.timeIntervalSince1970())
+
+
+def convert_events(ek_events, range_start):
     events = []
-    for record in raw.split(RECORD_SEP) if raw else []:
-        fields = record.split(FIELD_SEP)
-        if len(fields) != 4:
+    for event in ek_events or []:
+        start_date = event.startDate()
+        if start_date is None:
             continue
-        title, start, all_day, calendar = fields
-        try:
-            start = datetime.strptime(start, "%Y-%m-%dT%H:%M")
-        except ValueError:
-            continue
+        start = to_datetime(start_date)
+        all_day = bool(event.isAllDay())
+        if all_day and start < range_start:
+            start = range_start
+        calendar = event.calendar()
         events.append({
-            "title": " ".join(title.split()) or "Untitled event",
+            "title": " ".join((event.title() or "").split()) or "Untitled event",
             "start": start,
-            "all_day": all_day.strip().lower() == "true",
-            "calendar": calendar,
+            "all_day": all_day,
+            "calendar": calendar.title() if calendar is not None else "",
         })
-    return sorted(events, key=lambda event: (event["start"].date(), not event["all_day"], event["start"]))
+    return sorted(events, key=lambda e: (e["start"].date(), not e["all_day"], e["start"]))
 
 
-def fetch_events():
-    return parse_events(run_script())
+def request_permission():
+    EventKit, _ = load_eventkit()
+    ensure_access(EventKit, EventKit.EKEventStore.alloc().init(), allow_prompt=True)
+
+
+def fetch_events(allow_prompt=False):
+    EventKit, NSDate = load_eventkit()
+    store = EventKit.EKEventStore.alloc().init()
+    ensure_access(EventKit, store, allow_prompt)
+    range_start = datetime.combine(date.today(), time.min)
+    range_end = range_start + timedelta(days=2)
+    predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
+        NSDate.dateWithTimeIntervalSince1970_(range_start.timestamp()),
+        NSDate.dateWithTimeIntervalSince1970_(range_end.timestamp()),
+        None,
+    )
+    return convert_events(store.eventsMatchingPredicate_(predicate), range_start)
 
 
 def events_on(events, day):
@@ -109,13 +117,13 @@ def format_time(event):
 
 if __name__ == "__main__":
     try:
-        events = fetch_events()
+        events = fetch_events(allow_prompt=True)
     except CalendarAccessError as e:
         print(e)
         raise SystemExit(1)
     for label, day_events in (("Today", todays_events(events)), ("Tomorrow", tomorrows_events(events))):
         print(f"{label}:")
-        for event in day_events or []:
+        for event in day_events:
             print(f"  {format_time(event):>8}  {event['title']}  ({event['calendar']})")
         if not day_events:
             print("  nothing scheduled")

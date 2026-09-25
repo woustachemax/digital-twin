@@ -72,7 +72,7 @@ nav {
   border-radius: 50%;
   background: var(--lime);
   position: relative;
-  box-shadow: 0 0 0 3px #c6ff4a33;
+  box-shadow: 0 0 0 3px #c6ff4a14;
 }
 
 .logo-dot::before, .logo-dot::after {
@@ -194,6 +194,8 @@ h1 .squiggle::after {
   margin-top: 22px;
 }
 
+.hint-meta { display: block; margin-top: 8px; }
+
 kbd {
   font-family: var(--mono);
   font-size: 12px;
@@ -254,7 +256,7 @@ kbd {
   background: var(--lime);
   border-radius: 58% 42% 50% 50% / 55% 55% 45% 45%;
   animation: bob 3.2s ease-in-out infinite;
-  box-shadow: inset -10px -12px 0 #9ed624, 0 20px 40px #c6ff4a33;
+  box-shadow: inset -10px -12px 0 #9ed624, 0 16px 32px #c6ff4a12;
 }
 
 .blob .eye {
@@ -439,12 +441,13 @@ h2 {
 .feature:hover {
   transform: rotate(0) translateY(-6px);
   border-color: var(--accent);
-  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 14px 30px -20px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .f-hotkey { grid-column: span 4; }
 .f-memory { grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; }
 .f-weird, .f-source { grid-column: span 2; }
+.f-screen, .f-providers { grid-column: span 3; }
 
 .art {
   height: 160px;
@@ -512,6 +515,21 @@ h2 {
 .fork-label { font-family: var(--mono); font-size: 10px; fill: var(--lime); text-anchor: middle; }
 .star { fill: var(--sun); animation: spin 6s linear infinite; }
 .f-source:hover .star { animation-duration: 1s; }
+.sc-scan { animation: scan 5s ease-in-out infinite; filter: drop-shadow(0 0 3px #7ad7ff55); }
+.sc-flash { opacity: 0; animation: flash 5s ease-out infinite; }
+.sc-lines { animation: lines 5s ease-in-out infinite; }
+.sc-gone { animation: gone 5s ease-in-out infinite; }
+.sc-bub { transform-origin: 0% 100%; animation: scbub 5s cubic-bezier(.2, 1.4, .4, 1) infinite; }
+.f-screen:hover .sc-scan, .f-screen:hover .sc-flash, .f-screen:hover .sc-lines, .f-screen:hover .sc-gone, .f-screen:hover .sc-bub { animation-duration: 2.5s; }
+.pv-chip rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; animation: chiplit 4s ease-in-out infinite; }
+.pv-chip text { font-family: var(--mono); font-size: 12px; font-weight: 600; fill: var(--muted); text-anchor: middle; dominant-baseline: central; animation: chiptext 4s ease-in-out infinite; }
+.pv-line { fill: none; stroke: var(--lime); stroke-width: 2; stroke-dasharray: 4 6; stroke-opacity: 0.08; animation: linelit 4s ease-in-out infinite, flow 1.2s linear infinite; }
+.pv-chip.c2 rect, .pv-chip.c2 text, .pv-line.l2 { animation-delay: 1s; }
+.pv-chip.c3 rect, .pv-chip.c3 text, .pv-line.l3 { animation-delay: 2s; }
+.pv-chip.c4 rect, .pv-chip.c4 text, .pv-line.l4 { animation-delay: 3s; }
+.pv-key { animation: keyjiggle 2s ease-in-out infinite; }
+.f-providers:hover .pv-chip rect, .f-providers:hover .pv-chip text, .f-providers:hover .tw-hop { animation-duration: 2s; }
+.f-providers:hover .pv-line { animation-duration: 2s, 0.5s; }
 .brk { font-family: var(--mono); font-size: 22px; font-weight: 600; fill: var(--muted); animation: brk 2s ease-in-out infinite; }
 
 @keyframes press { 0% { transform: translateY(0); } 3% { transform: translateY(7px); } 9%, 100% { transform: translateY(0); } }
@@ -556,116 +574,100 @@ h2 {
 @keyframes cB { 0%, 31% { transform: scale(0); } 36% { transform: scale(1.4); } 40%, 86% { transform: scale(1); } 94%, 100% { transform: scale(0); } }
 @keyframes cC { 0%, 49% { transform: scale(0); } 54% { transform: scale(1.5); } 58%, 86% { transform: scale(1); } 94%, 100% { transform: scale(0); } }
 @keyframes spin { from { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.25); } to { transform: rotate(360deg) scale(1); } }
+@keyframes scan { 0% { transform: translateY(0); opacity: 1; } 30% { transform: translateY(96px); opacity: 1; } 34%, 100% { transform: translateY(96px); opacity: 0; } }
+@keyframes flash { 0%, 31% { opacity: 0; } 33% { opacity: 0.7; } 40%, 100% { opacity: 0; } }
+@keyframes lines { 0%, 40% { opacity: 1; } 48%, 90% { opacity: 0.12; } 97%, 100% { opacity: 1; } }
+@keyframes gone { 0%, 42% { opacity: 0; transform: scale(0.6); } 48% { opacity: 1; transform: scale(1.1); } 52%, 88% { opacity: 1; transform: scale(1); } 94%, 100% { opacity: 0; transform: scale(0.6); } }
+@keyframes scbub { 0%, 54% { opacity: 0; transform: scale(0); } 62%, 88% { opacity: 1; transform: scale(1); } 95%, 100% { opacity: 0; transform: scale(0); } }
+@keyframes chiplit { 0%, 22% { fill: #2a3a12; stroke: #c6ff4a; } 30%, 100% { fill: #1c1a25; stroke: #2c2938; } }
+@keyframes chiptext { 0%, 22% { fill: #c6ff4a; } 30%, 100% { fill: #a39db3; } }
+@keyframes linelit { 0%, 22% { stroke-opacity: 0.7; } 30%, 100% { stroke-opacity: 0.08; } }
+@keyframes keyjiggle { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 @keyframes brk { 0%, 100% { letter-spacing: 0; } 50% { letter-spacing: 4px; } }
 
-.readme {
-  background: var(--bg-2);
+.dl-card {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  overflow: hidden;
+  border-radius: 28px;
+  padding: 28px;
   margin-top: 36px;
 }
 
-.readme-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--line);
+.dl-icon { width: 112px; height: 112px; flex: none; }
+.dl-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.dl-icon svg * { transform-box: fill-box; transform-origin: center; }
+.dl-card:hover .tw-hop { animation-duration: 1.1s; }
+
+.dl-meta h3 { font-size: 32px; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 6px; }
+.dl-meta p { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+
+.dl-actions { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.dl-src { font-size: 14px; color: var(--muted); }
+.dl-src a { color: var(--text); }
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.step {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px;
+  transition: transform 0.25s cubic-bezier(.2, 1.4, .4, 1), border-color 0.2s ease;
+}
+
+.step:nth-child(odd) { transform: rotate(-0.4deg); }
+.step:nth-child(even) { transform: rotate(0.4deg); }
+.step:hover { transform: rotate(0) translateY(-6px); border-color: var(--lime); }
+
+.step-num {
+  display: inline-block;
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--muted);
-  background: #ffffff05;
+  color: var(--lime);
+  border: 1.5px dashed #c6ff4a66;
+  border-radius: 999px;
+  padding: 3px 11px;
+  margin-bottom: 14px;
 }
 
-.readme-body { padding: 30px; }
+.step h3 { font-size: 21px; letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 8px; }
+.step p { color: var(--muted); font-size: 15px; }
 
-.readme-body h3 {
-  font-size: 26px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 16px;
-}
-
-.readme-body h4 {
-  font-size: 18px;
-  margin: 28px 0 10px;
-}
-
-.readme-body p { color: var(--muted); font-size: 16px; }
-
-.readme-body code.inline {
-  font-family: var(--mono);
-  font-size: 14px;
+.perms {
+  margin-top: 16px;
   background: var(--card);
-  padding: 2px 6px;
-  border-radius: 6px;
-  color: var(--text);
-}
-
-.shields { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
-
-.shield {
-  display: inline-flex;
-  font-family: var(--mono);
-  font-size: 11px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.shield span { padding: 3px 7px; }
-.shield span:first-child { background: #3a3647; color: #ddd; }
-
-.code {
-  position: relative;
-  background: #0a090d;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  margin-top: 10px;
+  border-radius: var(--radius);
+  padding: 8px 24px;
 }
 
-.code pre {
-  font-family: var(--mono);
-  font-size: 14px;
-  line-height: 1.7;
-  padding: 16px 90px 16px 18px;
-  overflow-x: auto;
-  color: var(--text);
-}
+.perms h3 { font-size: 18px; padding: 16px 0 6px; }
 
-.code .p { color: var(--lime); user-select: none; }
-.code .c { color: #6f6980; }
-
-.copy {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  font-family: var(--mono);
-  font-size: 12px;
-  background: var(--card);
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-.copy { transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
-.copy:hover { color: var(--text); border-color: var(--muted); transform: translateY(-2px) scale(1.05); }
-.copy:active { transform: scale(0.95); }
-.copy.done { color: #111; background: var(--lime); border-color: var(--lime); }
-
-.note {
-  margin-top: 26px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: #7ad7ff12;
-  border: 1px solid #7ad7ff33;
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px dashed var(--line);
   font-size: 15px;
-  color: var(--text);
 }
 
-.note b { color: var(--sky); }
+.perm-row:last-child { border-bottom: none; }
+.perm-row .label { flex: 1; }
+.perm-row .label small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+.tag.opt { background: #ffd35c22; color: var(--sun); }
+
+.need { margin-top: 22px; color: var(--muted); font-size: 16px; }
+.need b { color: var(--text); font-weight: 600; }
 
 footer {
   padding: 50px 0 70px;
@@ -931,10 +933,15 @@ footer .made {
   .f-memory .art { min-height: 200px; }
   .nav-links a:not(.gh-btn) { display: none; }
   section { padding: 56px 0; }
-  .readme-body { padding: 20px; }
+  .dl-card { flex-direction: column; align-items: flex-start; }
+  .dl-actions { margin-left: 0; align-items: flex-start; }
+  .steps { grid-template-columns: 1fr; }
+  .f-screen, .f-providers { grid-column: auto; }
 }
 
 @media (max-width: 520px) {
+  .stage { aspect-ratio: 4 / 5; }
+  .bubble { top: 16%; font-size: 15px; }
   .persona-grid { grid-template-columns: 1fr; }
   .persona.p-twin { grid-column: auto; }
 }
@@ -953,21 +960,21 @@ footer .made {
       <a href="#local">why local</a>
       <a href="#features">stuff it does</a>
       <a href="#personas">personas</a>
-      <a href="#install">install</a>
+      <a href="#get">download</a>
       <a class="gh-btn" href="https://github.com/woustachemax/digital-twin">★ github</a>
     </div>
   </nav>
 
   <header class="hero">
     <div>
-      <span class="badge">🛠 v0.0.1 · built at a hackathon · held together with tape</span>
+      <span class="badge">✨ v0.1.0 · now a real Mac app</span>
       <h1>a tiny buddy that lives on your <span class="squiggle">Mac.</span></h1>
       <p class="tagline">Twin floats on your desktop, knows roughly what you've been up to, and <b>keeps all of it on your machine.</b></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="#install">get twin →</a>
+        <a class="btn btn-primary" href="#get">download for mac ↓</a>
         <a class="btn btn-ghost" href="https://github.com/woustachemax/digital-twin">read the source</a>
       </div>
-      <p class="hint">summon it anytime with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>space</kbd></p>
+      <p class="hint">summon it anytime with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>space</kbd><span class="hint-meta">free · open source · macOS 13+</span></p>
     </div>
 
     <div class="stage" aria-hidden="true">
@@ -996,7 +1003,7 @@ footer .made {
       <h2>your stuff stays on your laptop.</h2>
       <p class="lede">Twin keeps everything it knows about you in a DuckDB file at <code>~/.twin/twin.duckdb</code>, right on your Mac. No accounts, no sync, no cloud database, no analytics. Twin has no server of its own, so there's nowhere for your data to go.</p>
       <p class="lede yours">Twin is a real app anyone can install, not somebody's personal script. Everyone who installs it gets <b>their own brand-new twin.duckdb</b>, created on their Mac the first time they run Twin. Nothing is shared, synced, or pooled between users, so your data never mixes with anyone else's, and the database itself never leaves your machine.</p>
-      <p class="fineprint">What leaves your Mac: when you chat, one request goes straight to the Anthropic API with your message, your name, the current time, today's calendar event titles and times, and a fuzzy spending summary like "spent money on food earlier this week". Amounts, balances, account numbers, merchants and raw SMS never leave, and Twin scrubs every request before it's sent. Run it with <code>BUDDY_DEBUG=1</code> to see exactly what goes out.</p>
+      <p class="fineprint">What leaves your Mac: when you chat, one request goes straight to the AI provider you picked (Anthropic, OpenAI, Google or xAI) with your message, your name, the current time, today's calendar event titles and times, and a fuzzy spending summary like "spent money on food earlier this week". Amounts, balances, account numbers, merchants and raw SMS never leave, and Twin scrubs every request before it's sent. Ask about your screen and only a one-line description goes along. The screenshot itself is deleted on your Mac right away.</p>
     </div>
 
     <div class="flow">
@@ -1006,13 +1013,18 @@ footer .made {
         <span class="tag stay">stays home</span>
       </div>
       <div class="flow-row">
+        <div class="flow-icon" style="background:#c6ff4a22">🔑</div>
+        <div class="label">your API key<small>kept in the macOS Keychain, not a file</small></div>
+        <span class="tag stay">stays home</span>
+      </div>
+      <div class="flow-row">
         <div class="flow-icon" style="background:#ffd35c22">🫧</div>
         <div class="label">fuzzy summary<small>"got paid yesterday", never "$1,240"</small></div>
         <span class="tag stay">built locally</span>
       </div>
       <div class="flow-row">
         <div class="flow-icon" style="background:#7ad7ff22">💬</div>
-        <div class="label">api.anthropic.com<small>your message, name, today's events + that summary</small></div>
+        <div class="label">your AI provider<small>Claude, GPT, Gemini or Grok. your message, name, today's events + that summary</small></div>
         <span class="tag go">only exit</span>
       </div>
       <div class="flow-row">
@@ -1090,7 +1102,7 @@ footer .made {
           </svg>
         </div>
         <h3>remembers what you've been up to</h3>
-        <p>Twin parses bank SMS from Messages into a local DuckDB file and peeks at today's calendar, so it has a rough picture of your day without you having to explain it.</p>
+        <p>Every time Twin starts, it pulls new bank texts from Messages into a local DuckDB file and checks today's calendar, so it has a rough picture of your day without you explaining it.</p>
       </div>
 
       <div class="feature f-weird" data-gaze="5" style="--accent: var(--pink)">
@@ -1123,7 +1135,7 @@ footer .made {
           </svg>
         </div>
         <h3>a little bit weird</h3>
-        <p>Twin itself is warm and easygoing. Want more flavor? Swap in a sly shadow-ghost, a hype-machine spark, or a sleepy moon ghost with one command. None of them write you five-paragraph essays with headers.</p>
+        <p>Twin itself is warm and easygoing. Want more flavor? Swap in a sly shadow-ghost, a hype-machine spark, or a sleepy moon ghost with one click. None of them write you five-paragraph essays with headers.</p>
       </div>
 
       <div class="feature f-source" style="--accent: var(--sun)">
@@ -1145,7 +1157,71 @@ footer .made {
           </svg>
         </div>
         <h3>fully open source</h3>
-        <p>Every line is on GitHub. Read it, fork it, rip out the parts you don't like, give it a new personality. It's a few hundred lines of Python, not a black box.</p>
+        <p>Every line is on GitHub. Read it, fork it, rip out the parts you don't like, give it a new personality. It's plain Python, not a black box.</p>
+      </div>
+      <div class="feature f-screen" style="--accent: var(--sky)">
+        <div class="art">
+          <svg viewBox="0 0 300 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <rect x="40" y="14" width="170" height="104" rx="10" fill="#15131c" stroke="#2c2938" stroke-width="2"/>
+            <path d="M112 118 L108 134 H142 L138 118" fill="#1c1a25" stroke="#2c2938" stroke-width="2" stroke-linejoin="round"/>
+            <g class="sc-lines">
+              <rect x="56" y="30" width="90" height="6" rx="3" fill="#a39db3"/>
+              <rect x="56" y="44" width="130" height="6" rx="3" fill="#6f6980"/>
+              <rect x="68" y="58" width="104" height="6" rx="3" fill="#6f6980"/>
+              <rect x="68" y="72" width="76" height="6" rx="3" fill="#6f6980"/>
+              <rect x="56" y="86" width="118" height="6" rx="3" fill="#6f6980"/>
+              <rect x="56" y="100" width="60" height="6" rx="3" fill="#a39db3"/>
+            </g>
+            <rect class="sc-scan" x="42" y="16" width="166" height="4" rx="2" fill="#7ad7ff"/>
+            <rect class="sc-flash" x="42" y="16" width="166" height="100" rx="8" fill="#ffffff"/>
+            <g class="sc-gone">
+              <rect x="86" y="54" width="78" height="24" rx="12" fill="#0f0e14" stroke="#7ad7ff" stroke-width="1.5"/>
+              <text x="125" y="67" fill="#7ad7ff" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle" dominant-baseline="central">deleted ✓</text>
+            </g>
+            <g class="sc-bub">
+              <rect x="190" y="20" width="102" height="44" rx="14" fill="#f3eefc"/>
+              <path d="M204 62 L198 74 L214 62 Z" fill="#f3eefc"/>
+              <text x="241" y="36" fill="#17141f" font-family="Bricolage Grotesque, sans-serif" font-size="11" font-weight="600" text-anchor="middle">looks like</text>
+              <text x="241" y="51" fill="#17141f" font-family="Bricolage Grotesque, sans-serif" font-size="11" font-weight="600" text-anchor="middle">some code 👀</text>
+            </g>
+          </svg>
+        </div>
+        <h3>peeks at your screen (only when asked)</h3>
+        <p>Ask "what am I looking at?" and Twin takes one quick screenshot, reads it on your Mac, and deletes it right away. The AI only ever gets a one-line description, never the image.</p>
+      </div>
+
+      <div class="feature f-providers" style="--accent: var(--lime)">
+        <div class="art">
+          <svg viewBox="0 0 300 150" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <path class="pv-line l1" d="M150 72 L66 32"/>
+            <path class="pv-line l2" d="M150 72 L234 32"/>
+            <path class="pv-line l3" d="M150 72 L234 116"/>
+            <path class="pv-line l4" d="M150 72 L66 116"/>
+            <g class="pv-chip c1"><rect x="30" y="18" width="72" height="28" rx="14"/><text x="66" y="32">Claude</text></g>
+            <g class="pv-chip c2"><rect x="198" y="18" width="72" height="28" rx="14"/><text x="234" y="32">GPT</text></g>
+            <g class="pv-chip c3"><rect x="198" y="102" width="72" height="28" rx="14"/><text x="234" y="116">Grok</text></g>
+            <g class="pv-chip c4"><rect x="30" y="102" width="72" height="28" rx="14"/><text x="66" y="116">Gemini</text></g>
+            <g transform="translate(150 70) scale(1.5)">
+              <g class="tw-hop">
+                <ellipse cx="0" cy="0.5" rx="18" ry="16.5" fill="#9ecc3b"/>
+                <ellipse cx="-1.5" cy="-1.25" rx="16.5" ry="14.75" fill="#C6FF4A"/>
+                <ellipse cx="-6.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+                <ellipse cx="2.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+                <ellipse cx="-11.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+                <ellipse cx="7.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+                <path d="M-4.6 1.4 Q-2 4.6 0.6 1.4" fill="none" stroke="#111111" stroke-width="1.1" stroke-linecap="round"/>
+              </g>
+            </g>
+            <g transform="translate(150 124)">
+              <g class="pv-key">
+                <circle cx="-8" cy="0" r="5" fill="none" stroke="#ffd35c" stroke-width="2.5"/>
+                <path d="M-3 0 H10 M6 0 V4 M10 0 V3" fill="none" stroke="#ffd35c" stroke-width="2.5" stroke-linecap="round"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <h3>bring your own AI</h3>
+        <p>Claude, GPT, Gemini or Grok. Paste a key from whichever you like and Twin talks to it directly. Your key lives in the macOS Keychain, not in some file.</p>
       </div>
     </div>
   </div>
@@ -1320,65 +1396,86 @@ footer .made {
       </div>
     </div>
 
-    <p class="persona-note">Pick one at launch with <code>PERSONA=gengar python3 buddy.py</code>, or switch live by typing <code>/persona &lt;name&gt;</code> in chat. Use the lowercase name on each card. Pick nothing and you get Twin. Want no personality at all? <code>/persona plain</code> switches to Assistant, the no-frills fallback.</p>
+    <p class="persona-note">Pick your buddy during setup, then switch anytime by clicking a different one in Twin or typing <code>/persona &lt;name&gt;</code> with the lowercase name on each card. Pick nothing and you get Twin. Want no personality at all? <code>/persona plain</code> switches to Assistant, the no-frills fallback.</p>
   </div>
 </section>
 
-<section id="install">
+<section id="get">
   <div class="wrap">
-    <p class="eyebrow">install</p>
-    <h2>five steps. that's the installer.</h2>
-    <p class="lede">No .dmg yet. We're a hackathon project, so you get the terminal version.</p>
+    <p class="eyebrow">get twin</p>
+    <h2>download. drag. say hi.</h2>
+    <p class="lede">Twin is a real Mac app. No terminal, no Python, no config files. Setup happens inside Twin and takes about a minute.</p>
 
-    <div class="readme">
-      <div class="readme-head">📄 README.md</div>
-      <div class="readme-body">
-        <h3>twin</h3>
-        <div class="shields">
-          <span class="shield"><span>platform</span><span style="background:var(--lime);color:#111">macOS</span></span>
-          <span class="shield"><span>storage</span><span style="background:var(--sun);color:#111">duckdb</span></span>
-          <span class="shield"><span>status</span><span style="background:var(--pink);color:#111">very early</span></span>
-        </div>
-        <p>A local-first desktop buddy. Needs macOS, Python 3 with Tk, and an <code class="inline">ANTHROPIC_API_KEY</code>.</p>
-
-        <h4>1. grab the code</h4>
-        <div class="code">
-          <pre><span class="p">$ </span>git clone https://github.com/woustachemax/digital-twin.git
-<span class="p">$ </span>cd digital-twin</pre>
-          <button class="copy" data-cmd="git clone https://github.com/woustachemax/digital-twin.git&#10;cd digital-twin">copy</button>
-        </div>
-
-        <h4>2. install dependencies</h4>
-        <div class="code">
-          <pre><span class="p">$ </span>pip install anthropic duckdb python-dotenv pynput \
-    pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-Vision</pre>
-          <button class="copy" data-cmd="pip install anthropic duckdb python-dotenv pynput \&#10;    pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-Vision">copy</button>
-        </div>
-
-        <h4>3. add your api key</h4>
-        <div class="code">
-          <pre><span class="p">$ </span>echo 'ANTHROPIC_API_KEY=sk-ant-...' &gt; .env
-<span class="c"># swap in your real key from console.anthropic.com</span></pre>
-          <button class="copy" data-cmd="echo 'ANTHROPIC_API_KEY=sk-ant-...' &gt; .env">copy</button>
-        </div>
-
-        <h4>4. teach it your week</h4>
-        <div class="code">
-          <pre><span class="p">$ </span>python3 run_pipeline.py
-<span class="c"># reads recent bank SMS from Messages into ~/.twin/twin.duckdb</span></pre>
-          <button class="copy" data-cmd="python3 run_pipeline.py">copy</button>
-        </div>
-
-        <h4>5. say hi</h4>
-        <div class="code">
-          <pre><span class="p">$ </span>python3 buddy.py
-<span class="c"># or pick a persona: PERSONA=gengar python3 buddy.py</span></pre>
-          <button class="copy" data-cmd="python3 buddy.py">copy</button>
-        </div>
-
-        <div class="note"><b>heads up:</b> give your terminal Full Disk Access in System Settings so step 4 can read Messages. macOS will also ask for Accessibility and Input Monitoring (for the hotkey) and Calendar the first time Twin needs them. Say yes, or Twin can't hear you.</div>
+    <div class="dl-card">
+      <div class="dl-icon" aria-hidden="true">
+        <svg viewBox="0 0 120 120">
+          <rect x="4" y="4" width="112" height="112" rx="28" fill="#0E0D12" stroke="#3c4a20" stroke-width="2"/>
+          <g transform="translate(60 62) scale(2)">
+            <g class="tw-hop">
+              <ellipse cx="0" cy="0.5" rx="18" ry="16.5" fill="#9ecc3b"/>
+              <ellipse cx="-1.5" cy="-1.25" rx="16.5" ry="14.75" fill="#C6FF4A"/>
+              <ellipse cx="-6.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+              <ellipse cx="2.5" cy="-4.5" rx="1.8" ry="3.5" fill="#111111"/>
+              <ellipse cx="-11.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+              <ellipse cx="7.5" cy="2" rx="2.5" ry="1.5" fill="#eea297"/>
+              <path d="M-4.6 1.4 Q-2 4.6 0.6 1.4" fill="none" stroke="#111111" stroke-width="1.1" stroke-linecap="round"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <div class="dl-meta">
+        <h3>Twin for Mac</h3>
+        <p>v0.1.0 · macOS 13 Ventura or later · Apple silicon · free and open source</p>
+      </div>
+      <div class="dl-actions">
+        <a class="btn btn-primary" href="https://github.com/woustachemax/digital-twin/releases/latest">download Twin ↓</a>
+        <span class="dl-src">or <a href="https://github.com/woustachemax/digital-twin">build it from source</a></span>
       </div>
     </div>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">01</span>
+        <h3>drag it into Applications</h3>
+        <p>Unzip the download and drop Twin into your Applications folder. That's the whole install.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <h3>open it (once, the long way)</h3>
+        <p>Twin isn't notarized by Apple yet, so macOS will say it can't check it. Head to System Settings → Privacy &amp; Security and click Open Anyway. After that it opens like any app.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <h3>set it up in the bubble</h3>
+        <p>Pick your AI provider, paste your API key (it goes straight into your Keychain), tell Twin your name, and pick a buddy. Done.</p>
+      </div>
+    </div>
+
+    <div class="perms">
+      <h3>what macOS will ask about</h3>
+      <div class="perm-row">
+        <div class="flow-icon" style="background:#c6ff4a22">⌨️</div>
+        <div class="label">Accessibility<small>so <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>space</kbd> works from anywhere</small></div>
+        <span class="tag stay">for the hotkey</span>
+      </div>
+      <div class="perm-row">
+        <div class="flow-icon" style="background:#7ad7ff22">📅</div>
+        <div class="label">Calendars<small>so Twin can mention what's coming up today</small></div>
+        <span class="tag opt">optional</span>
+      </div>
+      <div class="perm-row">
+        <div class="flow-icon" style="background:#ffd35c22">💬</div>
+        <div class="label">Full Disk Access<small>so Twin can read bank texts in Messages for your spending summary</small></div>
+        <span class="tag opt">optional</span>
+      </div>
+      <div class="perm-row">
+        <div class="flow-icon" style="background:#ff7ab822">🖥️</div>
+        <div class="label">Screen Recording<small>only asked for the first time you ask Twin to look at your screen</small></div>
+        <span class="tag opt">optional</span>
+      </div>
+    </div>
+
+    <p class="need">You'll need an API key from <b>Anthropic</b>, <b>OpenAI</b>, <b>Google Gemini</b> or <b>xAI</b>. Twin sends your chats straight to whichever you pick. Skip any permission and Twin still works, it just knows a little less.</p>
   </div>
 </section>
 
@@ -1389,41 +1486,6 @@ footer .made {
 </footer>
 
 <script>
-function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
-  return new Promise(function (resolve, reject) {
-    var ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    var ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    ok ? resolve() : reject();
-  });
-}
-
-document.querySelectorAll(".copy").forEach(function (btn) {
-  var timer;
-  btn.addEventListener("click", function () {
-    copyText(btn.dataset.cmd).then(function () {
-      btn.textContent = "copied!";
-      btn.classList.add("done");
-    }, function () {
-      btn.textContent = "select it";
-    }).then(function () {
-      clearTimeout(timer);
-      timer = setTimeout(function () {
-        btn.textContent = "copy";
-        btn.classList.remove("done");
-      }, 1400);
-    });
-  });
-});
 document.querySelectorAll("[data-gaze]").forEach(function (card) {
   var gaze = card.querySelector(".gaze");
   var eyes = card.querySelector(".eyes");
