@@ -4,6 +4,7 @@ import os
 import queue
 import random
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -830,6 +831,9 @@ def apply_macos_chrome(root, background, edge):
             tint.layer().setBorderColor_(Quartz.CGColorCreateGenericRGB(*hex_to_rgb(edge_color), 1.0))
             window.invalidateShadow()
 
+        content.setWantsLayer_(True)
+        content.layer().setCornerRadius_(RADIUS)
+        content.layer().setMasksToBounds_(True)
         content.superview().addSubview_positioned_relativeTo_(effect, AppKit.NSWindowBelow, content)
         window.setOpaque_(False)
         window.setBackgroundColor_(AppKit.NSColor.clearColor())
@@ -1395,7 +1399,7 @@ class Buddy:
         time.sleep(5)
         while True:
             try:
-                if not self.onboarding:
+                if not self.onboarding and self.client is not None:
                     self.run_nudge_check()
             except Exception as e:
                 print(f"[buddy] nudge check failed: {e!r}", file=sys.stderr)
@@ -2318,6 +2322,13 @@ def main():
     root = tk.Tk()
     root.withdraw()
     root.title("Twin")
+
+    def shutdown(*_):
+        root.quit()
+
+    root.createcommand("::tk::mac::Quit", shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
 
     def start(client, notice=None, fresh=False):
         current = load_config() if fresh else config
