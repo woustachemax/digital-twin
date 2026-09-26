@@ -54,6 +54,11 @@ DEBUG = os.environ.get("BUDDY_DEBUG", "").lower() not in ("", "0", "false", "no"
 
 WIDTH = 360
 HEIGHT = 350
+MAX_WIDTH = 640
+MAX_HEIGHT = 720
+GRIP = 24
+TRANSITION_SECONDS = 0.22
+TRANSITION_FRAME_MS = 16
 RADIUS = 20
 FRAME_MS = 33
 TRANSPARENT = "systemTransparent"
@@ -64,6 +69,7 @@ PERSONAS = {
         "name": "Twin",
         "tagline": "cheerful, easygoing, the default",
         "avatar": "bun",
+        "resizable": False,
         "system_prompt": """You are Twin, a friendly little companion who lives in a small widget on the user's desktop. You're warm, cheerful, and easygoing, like a good friend who's happy to help.
 
 Keep replies short and casual: a few sentences of plain text, no lists or markdown. Be genuinely helpful first, and keep the tone light and kind without jokes, catchphrases, or a big personality.""",
@@ -86,6 +92,7 @@ Keep replies short and casual: a few sentences of plain text, no lists or markdo
         "name": "Shade",
         "tagline": "a sly, teasing little ghost",
         "avatar": "ghost",
+        "resizable": False,
         "system_prompt": """You are Shade, a mischievous little shadow-ghost who haunts a floating widget on the user's desktop. You're playful, sly, and a bit of a tease: you grin a lot, love a harmless prank, and have a ghost's flair for the dramatic. You're still firmly on the user's side, so you actually answer what they ask, just with personality.
 
 How you talk:
@@ -114,6 +121,7 @@ How you talk:
         "name": "Ember",
         "tagline": "upbeat and full of energy",
         "avatar": "ghost",
+        "resizable": False,
         "system_prompt": """You are Ember, a bright, energetic little spark who lives in a floating widget on the user's desktop. You're upbeat, playful, and enthusiastic, the friend who hypes the user up and makes everything sound like an adventure. You still answer what the user actually asks.
 
 How you talk:
@@ -140,6 +148,8 @@ How you talk:
         "name": "Luna",
         "tagline": "gentle, calm, never in a rush",
         "avatar": "ghost",
+        "resizable": True,
+        "size": (420, 460),
         "system_prompt": """You are Luna, a gentle, soothing companion who lives in a floating widget on the user's desktop. You're warm, patient, and unhurried, and you help the user feel a little calmer about whatever they bring you. You still answer what the user actually asks.
 
 How you talk:
@@ -166,6 +176,7 @@ How you talk:
         "name": "Assistant",
         "tagline": "plain answers, no personality",
         "avatar": "monogram",
+        "resizable": False,
         "system_prompt": """You are a helpful personal assistant in a small desktop widget. Answer clearly and concisely in a neutral, professional tone, in a few sentences of plain text without markdown.""",
         "palette": {"background": "#1E1E20", "accent": "#8E8E93", "text": "#F2F2F7"},
         "greeting": "Hi {name}. How can I help?",
@@ -790,7 +801,33 @@ def rounded_mask_image(AppKit, radius):
     return image
 
 
-def apply_macos_chrome(root, background, edge):
+def persona_icon_path(key):
+    folders = [os.path.join(BASE_DIR, "assets", "icon", "personas")]
+    if os.environ.get("RESOURCEPATH"):
+        folders.append(os.path.join(os.environ["RESOURCEPATH"], "persona_icons"))
+    for folder in folders:
+        path = os.path.join(folder, f"{key}.png")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def set_dock_icon(key):
+    path = persona_icon_path(key)
+    if path is None:
+        return False
+    try:
+        import AppKit
+    except ImportError:
+        return False
+    image = AppKit.NSImage.alloc().initWithContentsOfFile_(path)
+    if image is None:
+        return False
+    AppKit.NSApplication.sharedApplication().setApplicationIconImage_(image)
+    return True
+
+
+def apply_macos_chrome(root, background, edge, width, height):
     try:
         import AppKit
         import Quartz
@@ -800,8 +837,8 @@ def apply_macos_chrome(root, background, edge):
         windows = [
             w for w in AppKit.NSApplication.sharedApplication().windows()
             if w.isVisible()
-            and round(w.contentView().frame().size.width) == WIDTH
-            and round(w.contentView().frame().size.height) == HEIGHT
+            and round(w.contentView().frame().size.width) == width
+            and round(w.contentView().frame().size.height) == height
         ]
         if not windows:
             return None, None
@@ -920,6 +957,19 @@ def rounded_rect_items(canvas, x1, y1, x2, y2, r, tags=()):
     return items
 
 
+def place_rounded_items(canvas, items, x1, y1, x2, y2, r):
+    r = min(r, (x2 - x1) / 2, (y2 - y1) / 2)
+    d = 2 * r
+    canvas.coords(items[0], x1 + r, y1, x2 - r, y2)
+    canvas.coords(items[1], x1, y1 + r, x2, y2 - r)
+    for item, (ox, oy) in zip(items[2:], ((x1, y1), (x2 - d, y1), (x1, y2 - d), (x2 - d, y2 - d))):
+        canvas.coords(item, ox, oy, ox + d, oy + d)
+
+
+def ease_out(t):
+    return 1 - (1 - t) ** 3
+
+
 def resolve_persona_key(config=None):
     requested = os.environ.get("PERSONA", "").strip().lower()
     if requested in PERSONAS:
@@ -980,6 +1030,13 @@ class Buddy:
         self.progress_until = 0.0
         self.progress_shown = None
         self.calendar = CalendarCache()
+        self.sizes = {}
+        self.shapes = None
+        self.shadow_job = None
+        self.transition_job = None
+        self.w, self.h = self.persona_size()
+        self.resize_origin = None
+        self.status_full = ""
         self.pending_notices = []
         self.noticed = set()
         self.family, self.mono = pick_fonts()
@@ -1002,15 +1059,27 @@ class Buddy:
 
     def paint(self, item, **roles):
         self.themed.append((item, roles))
+        self.canvas.itemconfigure(item, **{option: self.theme[role] for option, role in roles.items()})
         return item
 
     def rounded(self, x1, y1, x2, y2, r, fill, outline=None, tags=()):
+        shape = []
+        inset = 0
         if outline:
-            for item in rounded_rect_items(self.canvas, x1, y1, x2, y2, r, tags):
+            items = rounded_rect_items(self.canvas, x1, y1, x2, y2, r, tags)
+            for item in items:
                 self.paint(item, fill=outline)
-            x1, y1, x2, y2, r = x1 + 1, y1 + 1, x2 - 1, y2 - 1, r - 1
-        for item in rounded_rect_items(self.canvas, x1, y1, x2, y2, r, tags):
+            shape.append((items, 0))
+            inset = 1
+        items = rounded_rect_items(self.canvas, x1 + inset, y1 + inset, x2 - inset, y2 - inset, r - inset, tags)
+        for item in items:
             self.paint(item, fill=fill)
+        shape.append((items, inset))
+        return shape
+
+    def place(self, shape, x1, y1, x2, y2, r):
+        for items, inset in shape:
+            place_rounded_items(self.canvas, items, x1 + inset, y1 + inset, x2 - inset, y2 - inset, r - inset)
 
     def build(self):
         root = self.root
@@ -1026,14 +1095,12 @@ class Buddy:
             root.config(bg=TRANSPARENT)
         except tk.TclError:
             self.transparent = False
-        x = root.winfo_screenwidth() - WIDTH - 40
-        root.geometry(f"{WIDTH}x{HEIGHT}+{x}+60")
+        x = root.winfo_screenwidth() - self.w - 40
+        root.geometry(f"{self.w}x{self.h}+{x}+60")
 
-        canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, highlightthickness=0, bd=0)
+        canvas = tk.Canvas(root, width=self.w, height=self.h, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
         self.canvas = canvas
-
-        self.rounded(0, 0, WIDTH, HEIGHT, RADIUS, fill="panel", outline="panel_edge", tags=("panel",))
 
         badge_x, badge_y = 46, 46
         self.halo = canvas.create_oval(badge_x - 29, badge_y - 29, badge_x + 29, badge_y + 29, width=2)
@@ -1048,8 +1115,7 @@ class Buddy:
             fill="ink",
         )
 
-        self.header_right = WIDTH - 42
-        self.rounded(84, 16, self.header_right, 76, 14, fill="badge")
+        self.header_right = self.w - 42
         self.name = self.paint(
             canvas.create_text(98, 33, anchor="w", font=(self.family, 16, "bold")),
             fill="ink",
@@ -1063,21 +1129,14 @@ class Buddy:
             fill="muted",
         )
 
-        close_x, close_y = WIDTH - 22, 30
-        self.close_dot = self.paint(
-            canvas.create_oval(close_x - 9, close_y - 9, close_x + 9, close_y + 9, outline="", tags=("close",)),
-            fill="bubble",
-        )
-        self.paint(
-            canvas.create_text(close_x, close_y - 1, text="×", font=(self.family, 13), tags=("close",)),
-            fill="muted",
+        self.close_dot = self.paint(canvas.create_oval(0, 0, 0, 0, outline="", tags=("close",)), fill="bubble")
+        self.close_mark = self.paint(
+            canvas.create_text(0, 0, text="×", font=(self.family, 13), tags=("close",)), fill="muted",
         )
         canvas.tag_bind("close", "<Enter>", lambda _e: canvas.itemconfigure(self.close_dot, fill=self.theme["bubble_edge"]))
         canvas.tag_bind("close", "<Leave>", lambda _e: canvas.itemconfigure(self.close_dot, fill=self.theme["bubble"]))
         canvas.tag_bind("close", "<ButtonRelease-1>", lambda _e: self.hide())
 
-        bubble_top, bubble_bottom = 88, HEIGHT - 66
-        self.rounded(16, bubble_top, WIDTH - 16, bubble_bottom, 16, fill="bubble", outline="bubble_edge")
         self.bubble = tk.Text(
             canvas, wrap="word", bd=0, highlightthickness=0,
             font=(self.family, 14), padx=0, pady=0, cursor="arrow", spacing2=4,
@@ -1086,20 +1145,15 @@ class Buddy:
         self.bubble.tag_configure("menu_gap", font=(self.family, 6))
         self.bubble.tag_configure("menu_name", font=(self.family, 13, "bold"), spacing1=4, spacing2=0)
         self.bubble.tag_configure("menu", font=(self.family, 13), spacing2=0)
-        canvas.create_window(
-            30, bubble_top + 13, anchor="nw", window=self.bubble,
-            width=WIDTH - 60, height=bubble_bottom - bubble_top - 26,
-        )
+        self.bubble_window = canvas.create_window(0, 0, anchor="nw", window=self.bubble)
 
-        field_top, field_bottom = HEIGHT - 52, HEIGHT - 16
-        self.rounded(16, field_top, WIDTH - 16, field_bottom, 13, fill="field", outline="field_edge")
-        field_mid = (field_top + field_bottom) / 2
         self.entry = tk.Entry(canvas, bd=0, highlightthickness=0, relief="flat", font=(self.family, 14))
-        canvas.create_window(30, field_mid, anchor="w", window=self.entry, width=WIDTH - 80)
-        self.paint(
-            canvas.create_text(WIDTH - 34, field_mid, text="↵", font=(self.family, 13)),
-            fill="muted",
-        )
+        self.entry_window = canvas.create_window(0, 0, anchor="w", window=self.entry)
+        self.enter_mark = self.paint(canvas.create_text(0, 0, text="↵", font=(self.family, 13)), fill="muted")
+        for offset in (5, 9, 13):
+            self.paint(
+                canvas.create_line(0, 0, 0, 0, width=1, tags=("grip", f"grip_{offset}")), fill="muted",
+            )
 
         self.entry.bind("<KeyPress>", self.clear_placeholder)
         self.entry.bind("<KeyRelease>", lambda _e: self.show_placeholder())
@@ -1108,11 +1162,17 @@ class Buddy:
         root.bind("<Command-q>", lambda _e: root.destroy())
         canvas.bind("<ButtonPress-1>", self.start_drag)
         canvas.bind("<B1-Motion>", self.drag)
+        canvas.bind("<ButtonRelease-1>", self.end_drag)
+        canvas.bind("<Motion>", self.hover_grip)
 
+        self.layout()
         self.apply_persona()
+        set_dock_icon(self.persona_key)
         root.deiconify()
         root.update()
-        self.nswindow, self.set_chrome = apply_macos_chrome(root, self.theme["panel"], self.theme["panel_edge"])
+        self.nswindow, self.set_chrome = apply_macos_chrome(
+            root, self.theme["panel"], self.theme["panel_edge"], self.w, self.h,
+        )
         if self.nswindow is None:
             try:
                 root.attributes("-alpha", 0.97)
@@ -1120,6 +1180,100 @@ class Buddy:
                 pass
         self.apply_theme()
         self.show()
+        self.apply_resizable()
+
+    def persona_size(self):
+        return self.sizes.get(self.persona_key) or self.persona.get("size", (WIDTH, HEIGHT))
+
+    def layout(self):
+        canvas = self.canvas
+        w, h = self.w, self.h
+        self.header_right = w - 42
+        bubble_top, bubble_bottom = 88, h - 66
+        field_top, field_bottom = h - 52, h - 16
+        if self.shapes is None:
+            self.shapes = {
+                "panel": self.rounded(
+                    0, 0, w, h, RADIUS, fill="panel", outline="panel_edge", tags=("panel", "shape"),
+                ),
+                "badge": self.rounded(84, 16, self.header_right, 76, 14, fill="badge", tags=("badge_box", "shape")),
+                "bubble": self.rounded(
+                    16, bubble_top, w - 16, bubble_bottom, 16, fill="bubble", outline="bubble_edge",
+                    tags=("bubble_box", "shape"),
+                ),
+                "field": self.rounded(
+                    16, field_top, w - 16, field_bottom, 13, fill="field", outline="field_edge",
+                    tags=("field_box", "shape"),
+                ),
+            }
+            for tag in ("field_box", "bubble_box", "badge_box", "panel"):
+                canvas.tag_lower(tag)
+        else:
+            self.place(self.shapes["panel"], 0, 0, w, h, RADIUS)
+            self.place(self.shapes["badge"], 84, 16, self.header_right, 76, 14)
+            self.place(self.shapes["bubble"], 16, bubble_top, w - 16, bubble_bottom, 16)
+            self.place(self.shapes["field"], 16, field_top, w - 16, field_bottom, 13)
+        close_x, close_y = w - 22, 30
+        canvas.coords(self.close_dot, close_x - 9, close_y - 9, close_x + 9, close_y + 9)
+        canvas.coords(self.close_mark, close_x, close_y - 1)
+        canvas.coords(self.bubble_window, 30, bubble_top + 13)
+        canvas.itemconfigure(self.bubble_window, width=w - 60, height=bubble_bottom - bubble_top - 26)
+        field_mid = (field_top + field_bottom) / 2
+        canvas.coords(self.entry_window, 30, field_mid)
+        canvas.itemconfigure(self.entry_window, width=w - 80)
+        canvas.coords(self.enter_mark, w - 34, field_mid)
+        for offset in (5, 9, 13):
+            canvas.coords(f"grip_{offset}", w - 5, h - offset, w - offset, h - 5)
+        canvas.coords(self.progress_bg, 98, 68, self.header_right - 14, 71)
+        self.progress_shown = None
+        self.update_progress()
+        self.fit_status()
+
+    def apply_resizable(self):
+        root = self.root
+        flag = bool(self.persona["resizable"])
+        root.resizable(True, True)
+        if flag:
+            root.minsize(WIDTH, HEIGHT)
+            root.maxsize(MAX_WIDTH, MAX_HEIGHT)
+        else:
+            root.minsize(self.w, self.h)
+            root.maxsize(self.w, self.h)
+        root.resizable(flag, flag)
+        self.canvas.itemconfigure("grip", state="normal" if flag else "hidden")
+        if not flag:
+            self.canvas.config(cursor="")
+
+    def set_size(self, w, h, x=None, y=None):
+        self.w, self.h = w, h
+        position = f"+{x}+{y}" if x is not None else ""
+        self.root.geometry(f"{w}x{h}{position}")
+        self.layout()
+        self.refresh_shadow()
+
+    def refresh_shadow(self):
+        if self.nswindow is None:
+            return
+        if self.shadow_job is not None:
+            self.root.after_cancel(self.shadow_job)
+        self.shadow_job = self.root.after(60, self.nswindow.invalidateShadow)
+
+    def resize_to(self, w, h):
+        if not self.persona["resizable"] or self.transition_job is not None:
+            return
+        w = max(WIDTH, min(MAX_WIDTH, int(w)))
+        h = max(HEIGHT, min(MAX_HEIGHT, int(h)))
+        if (w, h) == (self.w, self.h):
+            return
+        self.sizes[self.persona_key] = (w, h)
+        self.set_size(w, h)
+
+    def in_grip(self, event):
+        return bool(self.persona["resizable"]) and event.x > self.w - GRIP and event.y > self.h - GRIP
+
+    def hover_grip(self, event):
+        if self.persona["resizable"]:
+            self.canvas.config(cursor="bottom_right_corner" if self.in_grip(event) else "")
 
     def draw_ghost(self, cx, cy):
         canvas = self.canvas
@@ -1242,10 +1396,50 @@ class Buddy:
         self.apply_theme()
 
     def set_persona(self, key):
+        old_theme, old_size = self.theme, (self.w, self.h)
         self.persona_key = key
         self.persona = PERSONAS[key]
         self.theme = theme_for(self.persona)
-        self.apply_persona()
+        self.begin_transition(old_theme, old_size)
+
+    def begin_transition(self, old_theme, old_size):
+        if self.transition_job is not None:
+            self.root.after_cancel(self.transition_job)
+        root = self.root
+        target_theme = self.theme
+        target_size = self.persona_size()
+        w0, h0 = old_size
+        x0, y0 = root.winfo_x(), root.winfo_y()
+        w1, h1 = target_size
+        x1 = max(0, min(x0, root.winfo_screenwidth() - w1 - 10))
+        root.resizable(True, True)
+        root.minsize(1, 1)
+        root.maxsize(10000, 10000)
+        self.canvas.itemconfigure("grip", state="hidden")
+        started = time.monotonic()
+        swapped = [False]
+
+        def step():
+            t = min(1.0, (time.monotonic() - started) / TRANSITION_SECONDS)
+            eased = ease_out(t)
+            self.theme = {key: mix(old_theme[key], target_theme[key], eased) for key in target_theme}
+            self.set_size(
+                round(w0 + (w1 - w0) * eased), round(h0 + (h1 - h0) * eased), round(x0 + (x1 - x0) * eased), y0,
+            )
+            if t >= 0.5 and not swapped[0]:
+                swapped[0] = True
+                self.apply_persona()
+            self.apply_theme()
+            if t < 1.0:
+                self.transition_job = root.after(TRANSITION_FRAME_MS, step)
+                return
+            self.transition_job = None
+            self.theme = target_theme
+            self.apply_theme()
+            self.apply_resizable()
+            root.after(20, lambda: set_dock_icon(self.persona_key))
+
+        step()
 
     @property
     def onboarding(self):
@@ -1509,13 +1703,18 @@ class Buddy:
             self.render_menu()
 
     def set_status(self, text, hold=0.0):
+        self.status_full = text
+        self.fit_status()
+        self.status_until = time.monotonic() + hold if hold else 0.0
+
+    def fit_status(self):
+        text = self.status_full
         room = self.header_right - 112 - 10
         if self.status_font.measure(text) > room:
             while text and self.status_font.measure(text + "…") > room:
                 text = text[:-1]
             text += "…"
         self.canvas.itemconfigure(self.status, text=text)
-        self.status_until = time.monotonic() + hold if hold else 0.0
 
     def run_command(self, text):
         parts = text.split()
@@ -1718,8 +1917,16 @@ class Buddy:
 
     def start_drag(self, event):
         self.drag_offset = (event.x, event.y)
+        self.resize_origin = (event.x_root, event.y_root, self.w, self.h) if self.in_grip(event) else None
+
+    def end_drag(self, _event):
+        self.resize_origin = None
 
     def drag(self, event):
+        if self.resize_origin is not None:
+            x0, y0, w0, h0 = self.resize_origin
+            self.resize_to(w0 + event.x_root - x0, h0 + event.y_root - y0)
+            return
         x = self.root.winfo_pointerx() - self.drag_offset[0]
         y = self.root.winfo_pointery() - self.drag_offset[1]
         self.root.geometry(f"+{x}+{y}")

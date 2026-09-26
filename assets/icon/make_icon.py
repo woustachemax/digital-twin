@@ -5,11 +5,13 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ICNS_PATH = os.path.join(HERE, "Twin.icns")
 PREVIEW_PATH = os.path.join(HERE, "Twin-1024.png")
+PERSONA_DIR = os.path.join(HERE, "personas")
+FONT_PATH = os.path.join(HERE, "..", "fonts", "BricolageGrotesque-ExtraBold.ttf")
 
 TILE = (20, 18, 27)
 TILE_EDGE = (44, 41, 56)
@@ -19,6 +21,15 @@ FACE = (17, 17, 17)
 CHEEK = (255, 122, 184)
 GROUND = (12, 11, 16)
 
+PERSONA_ICONS = {
+    "gengar": {"background": "#17111F", "accent": "#A77BFF", "text": "#EEE8F7", "eyes": "#FF4F6E", "avatar": "ghost"},
+    "ember": {"background": "#1E120D", "accent": "#FF7A3D", "text": "#FFEDE4", "eyes": "#FFD166", "avatar": "ghost"},
+    "calm": {"background": "#141828", "accent": "#A5B4FF", "text": "#E7EBFA", "eyes": "#141828", "avatar": "ghost"},
+    "plain": {"background": "#1E1E20", "accent": "#8E8E93", "text": "#F2F2F7", "eyes": "#1E1E20", "avatar": "monogram",
+              "letter": "A"},
+}
+
+PERSONA_ICON_PIXELS = 512
 SUPERSAMPLE = 4
 ICONSET = [
     ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
@@ -109,6 +120,85 @@ def render(pixels):
     return image.resize((pixels, pixels), Image.LANCZOS)
 
 
+def rgb(color):
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def blend(a, b, amount):
+    return tuple(round(x * (1 - amount) + y * amount) for x, y in zip(rgb(a), rgb(b)))
+
+
+def ghost_polygon(left, top, width, height, waves=3, steps=24):
+    radius = width / 2
+    points = []
+    for i in range(steps + 1):
+        angle = math.pi + math.pi * i / steps
+        points.append((left + radius + radius * math.cos(angle), top + radius + radius * math.sin(angle)))
+    hem = top + height
+    base = hem - height * 0.12
+    points.append((left + width, base))
+    segments = waves * 2
+    for i in range(segments + 1):
+        x = left + width - width * i / segments
+        points.append((x, hem if i % 2 == 0 else base))
+    return points
+
+
+def render_persona(pixels, spec):
+    size = pixels * SUPERSAMPLE
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    margin = size * (100 / 1024) if pixels >= 64 else size * (60 / 1024)
+    tile = rgb(spec["background"])
+    accent = rgb(spec["accent"])
+    draw.polygon(squircle(size, margin), fill=blend(spec["background"], spec["accent"], 0.25) + (255,))
+    draw.polygon(squircle(size, margin + size * 0.006), fill=tile + (255,))
+
+    cx, cy = size / 2, size / 2
+    if spec["avatar"] == "ghost":
+        width = size * 0.5
+        height = size * 0.5
+        left, top = cx - width / 2, cy - height / 2 - size * 0.01
+        shade = blend(spec["accent"], "#000000", 0.22)
+        shadow_w = width * 0.8
+        draw.ellipse((cx - shadow_w / 2, top + height * 1.02, cx + shadow_w / 2, top + height * 1.1),
+                     fill=blend(spec["background"], "#000000", 0.4) + (255,))
+        draw.polygon(ghost_polygon(left, top, width, height), fill=shade + (255,))
+        body = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(body).polygon(ghost_polygon(left - width * 0.03, top - height * 0.03, width, height), fill=255)
+        clip = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(clip).polygon(ghost_polygon(left, top, width, height), fill=255)
+        fill(image, ImageChops.multiply(body, clip), accent)
+        eye = rgb(spec["eyes"]) + (255,)
+        eye_w, eye_h = width * 0.11, height * 0.19
+        for fx in (0.33, 0.67):
+            ex, ey = left + width * fx, top + height * 0.42
+            draw.rounded_rectangle((ex - eye_w / 2, ey - eye_h / 2, ex + eye_w / 2, ey + eye_h / 2),
+                                   radius=eye_w / 2, fill=eye)
+        if pixels >= 48:
+            mouth = width * 0.2
+            mx, my = left + width / 2, top + height * 0.56
+            draw.arc((mx - mouth / 2, my - mouth / 2, mx + mouth / 2, my + mouth / 2), start=20, end=160,
+                     fill=eye, width=max(1, round(width * 0.03)))
+    else:
+        diameter = size * 0.5
+        draw.ellipse((cx - diameter / 2, cy - diameter / 2, cx + diameter / 2, cy + diameter / 2),
+                     fill=blend(spec["background"], spec["accent"], 0.18) + (255,),
+                     outline=accent + (255,), width=max(1, round(size * 0.008)))
+        font = ImageFont.truetype(FONT_PATH, round(diameter * 0.62))
+        draw.text((cx, cy), spec["letter"], font=font, fill=rgb(spec["text"]) + (255,), anchor="mm")
+
+    return image.resize((pixels, pixels), Image.LANCZOS)
+
+
+def write_persona_icons():
+    os.makedirs(PERSONA_DIR, exist_ok=True)
+    render(PERSONA_ICON_PIXELS).save(os.path.join(PERSONA_DIR, "twin.png"))
+    for key, spec in PERSONA_ICONS.items():
+        render_persona(PERSONA_ICON_PIXELS, spec).save(os.path.join(PERSONA_DIR, f"{key}.png"))
+    return sorted(os.listdir(PERSONA_DIR))
+
+
 def main():
     if shutil.which("iconutil") is None:
         sys.exit("iconutil not found: building .icns files needs macOS.")
@@ -126,6 +216,7 @@ def main():
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     print(f"wrote {ICNS_PATH} and {PREVIEW_PATH}")
+    print("wrote persona icons:", ", ".join(write_persona_icons()))
 
 
 if __name__ == "__main__":

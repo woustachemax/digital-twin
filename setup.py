@@ -28,6 +28,11 @@ FONT_FILES = sorted(
     os.path.join(FONT_DIR, name) for name in os.listdir(FONT_DIR) if name.endswith((".ttf", ".txt"))
 )
 
+PERSONA_ICON_DIR = os.path.join(BASE_DIR, "assets", "icon", "personas")
+PERSONA_ICON_FILES = sorted(
+    os.path.join(PERSONA_ICON_DIR, name) for name in os.listdir(PERSONA_ICON_DIR) if name.endswith(".png")
+)
+
 APP = ["buddy.py"]
 
 PLIST = {
@@ -102,7 +107,7 @@ OPTIONS = {
 setup(
     app=APP,
     name="Twin",
-    data_files=[("lib", TCL_TK_FILES), ("fonts", FONT_FILES)],
+    data_files=[("lib", TCL_TK_FILES), ("fonts", FONT_FILES), ("persona_icons", PERSONA_ICON_FILES)],
     options={"py2app": OPTIONS},
     setup_requires=["py2app"],
 )

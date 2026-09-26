@@ -230,11 +230,15 @@ Pick one during setup, switch live with `/persona <key>`, or start with the `PER
 PERSONA=calm python3 buddy.py
 ```
 
+Only personas with `"resizable": True` (currently Luna) can be resized, by dragging the grip in the bottom-right corner, between 360x350 and 640x720. Luna opens larger (420x460) and remembers the size you drag it to until you quit. Every other persona keeps the compact 360x350 widget and shows no grip.
+
+The Dock icon follows the active persona and changes when you switch with `/persona`. The icons are PNGs in `assets/icon/personas/`, one per persona key. `python3 assets/icon/make_icon.py` regenerates them from each persona's palette, along with `Twin.icns`.
+
 An unknown key prints a warning and is ignored. Every other widget color (border, bubble, input field, muted text, avatar) comes from these three palette values through `theme_for()` in `buddy.py`.
 
 Every message Twin shows, including errors and refusals, is in the current persona's voice. When the provider can't be reached, each persona has its own written lines for that.
 
-To add your own persona, add an entry to the `PERSONAS` dict with `name`, `tagline`, `avatar` (`bun`, `ghost`, or `monogram`), `system_prompt`, `palette`, `greeting` (may use `{name}`), `idle`, `busy`, `done`, `frame`, and `offline`.
+To add your own persona, add an entry to the `PERSONAS` dict with `name`, `tagline`, `avatar` (`bun`, `ghost`, or `monogram`), `resizable`, optional `size` (width, height), `system_prompt`, `palette`, `greeting` (may use `{name}`), `idle`, `busy`, `done`, `frame`, and `offline`.
 
 ## Configuration
 
